@@ -19,22 +19,22 @@
 #endif /* OPENSSL_IS_BORINGSSL */
 
 typedef enum {
-	RADON_RSA_RAW_SIGN = 1,
-	RADON_RSA_DECRYPT = 2,
-	RADON_ECDSA_SIGN = 3
-} radon_operation_et;
+	RSA_RAW_SIGN = 1,
+	RSA_DECRYPT = 2,
+	ECDSA_SIGN = 3
+} operation_et;
 
 typedef struct {
 	struct sockaddr_un address;
 	unsigned char ski[SHA_DIGEST_LENGTH];
-} radon_app_data_st;
+} app_data_st;
 
 typedef struct __attribute__((__packed__)) {
 	int command;
 	int padding;
 	unsigned long long int in_len;
 	unsigned char ski[SHA_DIGEST_LENGTH];
-} radon_cmd_req_st;
+} cmd_req_st;
 
 static int g_rsa_exdata_radon_index = -1;
 
@@ -44,14 +44,14 @@ static int g_ecdsa_exdata_radon_index = -1;
 
 #else /* OPENSSL_IS_BORINGSSL */
 
-static void *radon_ec_key_dup_func(void *);
-static void radon_ec_key_free_func(void *);
+static void *ec_key_dup_func(void *);
+static void ec_key_free_func(void *);
 
 #endif /* OPENSSL_IS_BORINGSSL */
 
-static int radon_run_command(radon_app_data_st *data, radon_operation_et command, size_t *out_len, uint8_t *out, const uint8_t *in, size_t in_len, int padding)
+static int run_command(app_data_st *data, operation_et command, size_t *out_len, uint8_t *out, const uint8_t *in, size_t in_len, int padding)
 {
-	radon_cmd_req_st cmd;
+	cmd_req_st cmd;
 	unsigned long long int ullout_len = 0;
 	int sock_fd = -1;
 
@@ -64,7 +64,7 @@ static int radon_run_command(radon_app_data_st *data, radon_operation_et command
 		return 0;
 	}
 
-	memset(&cmd, 0, sizeof(radon_cmd_req_st));
+	memset(&cmd, 0, sizeof(cmd));
 	cmd.command = (int)command;
 	cmd.padding = padding;
 	cmd.in_len = (unsigned long long int)in_len;
@@ -96,78 +96,78 @@ static int radon_run_command(radon_app_data_st *data, radon_operation_et command
 	return (ullout_len == 0) ? 0 : 1;
 }
 
-static int radon_rsa_run_command(radon_operation_et command, RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out, const uint8_t *in, size_t in_len, int padding)
+static int rsa_run_command(operation_et command, RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out, const uint8_t *in, size_t in_len, int padding)
 {
-	radon_app_data_st *data = NULL;
+	app_data_st *data = NULL;
 
 	if (!(data = RSA_get_ex_data(rsa, g_rsa_exdata_radon_index))) {
 		return 0;
 	}
 
-	return radon_run_command(data, command, out_len, out, in, in_len, padding);
+	return run_command(data, command, out_len, out, in, in_len, padding);
 }
 
-static int radon_ecdsa_run_command(radon_operation_et command, const uint8_t *digest, size_t digest_len, uint8_t *sig, unsigned int *sig_len, EC_KEY *key)
+static int ecdsa_run_command(operation_et command, const uint8_t *digest, size_t digest_len, uint8_t *sig, unsigned int *sig_len, EC_KEY *key)
 {
-	radon_app_data_st *data = NULL;
+	app_data_st *data = NULL;
 	int ret = 0;
 	size_t out_len = 0;
 
 #ifdef OPENSSL_IS_BORINGSSL
 	if (!(data = EC_KEY_get_ex_data(key, g_ecdsa_exdata_radon_index))) {
 #else /* OPENSSL_IS_BORINGSSL */
-	if (!(data = EC_KEY_get_key_method_data(key, radon_ec_key_dup_func, radon_ec_key_free_func, radon_ec_key_free_func))) {
+	if (!(data = EC_KEY_get_key_method_data(key, ec_key_dup_func, ec_key_free_func, ec_key_free_func))) {
 #endif /* OPENSSL_IS_BORINGSSL */
 		return 0;
 	}
 
-	ret = radon_run_command(data, command, &out_len, sig, digest, digest_len, 0);
+	ret = run_command(data, command, &out_len, sig, digest, digest_len, 0);
 	*sig_len = (unsigned int)out_len;
 	return ret;
 }
 
 #ifdef OPENSSL_IS_BORINGSSL
 
-static int radon_rsa_sign_raw(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out, const uint8_t *in, size_t in_len, int padding)
+static int rsa_sign_raw(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out, const uint8_t *in, size_t in_len, int padding)
 {
-	return radon_rsa_run_command(RADON_RSA_RAW_SIGN, rsa, out_len, out, max_out, in, in_len, padding);
+	return rsa_run_command(RSA_RAW_SIGN, rsa, out_len, out, max_out, in, in_len, padding);
 }
 
-static int radon_rsa_decrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out, const uint8_t *in, size_t in_len, int padding)
+static int rsa_decrypt(RSA *rsa, size_t *out_len, uint8_t *out, size_t max_out, const uint8_t *in, size_t in_len, int padding)
 {
-	return radon_rsa_run_command(RADON_RSA_DECRYPT, rsa, out_len, out, max_out, in, in_len, padding);
+	return rsa_run_command(RSA_DECRYPT, rsa, out_len, out, max_out, in, in_len, padding);
 }
 
-static int radon_ecdsa_sign(const uint8_t *digest, size_t digest_len, uint8_t *sig, unsigned int *sig_len, EC_KEY *key)
+static int ecdsa_sign(const uint8_t *digest, size_t digest_len, uint8_t *sig, unsigned int *sig_len, EC_KEY *key)
 {
-	return radon_ecdsa_run_command(RADON_ECDSA_SIGN, digest, digest_len, sig, sig_len, key);
+	return ecdsa_run_command(ECDSA_SIGN, digest, digest_len, sig, sig_len, key);
 }
 
 #else /* OPENSSL_IS_BORINGSSL */
 
-static int radon_rsa_private_decrypt(int flen, const unsigned char* from, unsigned char* to, RSA* rsa, int padding)
+static int rsa_private_decrypt(int flen, const unsigned char* from, unsigned char* to, RSA* rsa, int padding)
 {
 	size_t out_len = 0;
 
-	if (radon_rsa_run_command(RADON_RSA_DECRYPT, rsa, &out_len, to, -1, from, (size_t)flen, padding) == 1) {
+	if (rsa_run_command(RSA_DECRYPT, rsa, &out_len, to, -1, from, (size_t)flen, padding) == 1) {
 		return (int)out_len;
 	}
 
 	return 0;
 }
 
-static int radon_rsa_private_encrypt(int flen, const unsigned char* from, unsigned char* to, RSA* rsa, int padding)
+static int rsa_private_encrypt(int flen, const unsigned char* from, unsigned char* to, RSA* rsa, int padding)
 {
 	size_t out_len = 0;
 
-	if (radon_rsa_run_command(RADON_RSA_RAW_SIGN, rsa, &out_len, to, -1, from, (size_t)flen, padding) == 1) {
+	if (rsa_run_command(RSA_RAW_SIGN, rsa, &out_len, to, -1, from, (size_t)flen, padding) == 1) {
 		return (int)out_len;
 	}
 
 	return 0;
 }
 
-static ECDSA_SIG *radon_ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv, const BIGNUM *rp, EC_KEY *eckey)
+static ECDSA_SIG *ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv, const BIGNUM *rp, EC_KEY *eckey)
 {
 	ECDSA_SIG *sig = NULL;
 	char *raw_sig = NULL, *d2i_sig = NULL;
@@ -177,7 +177,7 @@ static ECDSA_SIG *radon_ecdsa_do_sign(const unsigned char *dgst, int dgst_len, c
 		return NULL;
 	}
 
-	if (radon_ecdsa_run_command(RADON_ECDSA_SIGN, (const uint8_t *)dgst, (size_t)dgst_len, (uint8_t *)raw_sig, &raw_sig_len, eckey) == 1) {
+	if (ecdsa_run_command(ECDSA_SIGN, (const uint8_t *)dgst, (size_t)dgst_len, (uint8_t *)raw_sig, &raw_sig_len, eckey) == 1) {
 		sig = d2i_ECDSA_SIG(NULL, (const unsigned char **)&d2i_sig, raw_sig_len);
 	}
 
@@ -186,10 +186,10 @@ static ECDSA_SIG *radon_ecdsa_do_sign(const unsigned char *dgst, int dgst_len, c
 	return sig;
 }
 
-static void *radon_ec_key_dup_func(void *ptr) {
-	radon_app_data_st *data = NULL, *prev = ptr;
+static void *ec_key_dup_func(void *ptr) {
+	app_data_st *data = NULL, *prev = ptr;
 
-	if (prev == NULL || (data = OPENSSL_malloc(sizeof(radon_app_data_st))) == NULL) {
+	if (prev == NULL || (data = OPENSSL_malloc(sizeof(app_data_st))) == NULL) {
 		return NULL;
 	}
 
@@ -197,8 +197,8 @@ static void *radon_ec_key_dup_func(void *ptr) {
 	return data;
 }
 
-static void radon_ec_key_free_func(void *ptr) {
-	radon_app_data_st *data = ptr;
+static void ec_key_free_func(void *ptr) {
+	app_data_st *data = ptr;
 
 	if (data != NULL) {
 		OPENSSL_free(data);
@@ -207,7 +207,7 @@ static void radon_ec_key_free_func(void *ptr) {
 
 #endif /* OPENSSL_IS_BORINGSSL */
 
-static const RSA_METHOD *radon_get_rsa_method()
+static const RSA_METHOD *get_rsa_method()
 {
 	static RSA_METHOD ops;
 
@@ -215,22 +215,22 @@ static const RSA_METHOD *radon_get_rsa_method()
 	if (!ops.sign_raw) {
 		ops.common.is_static = 1;
 
-		ops.sign_raw = radon_rsa_sign_raw;
-		ops.decrypt = radon_rsa_decrypt;
+		ops.sign_raw = rsa_sign_raw;
+		ops.decrypt = rsa_decrypt;
 	}
 #else /* OPENSSL_IS_BORINGSSL */
 	if (!ops.rsa_priv_enc) {
 		ops = *RSA_get_default_method();
 
-		ops.rsa_priv_dec = radon_rsa_private_decrypt;
-		ops.rsa_priv_enc = radon_rsa_private_encrypt;
+		ops.rsa_priv_dec = rsa_private_decrypt;
+		ops.rsa_priv_enc = rsa_private_encrypt;
 	}
 #endif /* OPENSSL_IS_BORINGSSL */
 
 	return &ops;
 }
 
-static const ECDSA_METHOD *radon_get_ecdsa_method()
+static const ECDSA_METHOD *get_ecdsa_method()
 {
 #ifdef OPENSSL_IS_BORINGSSL
 	static ECDSA_METHOD ops;
@@ -238,7 +238,7 @@ static const ECDSA_METHOD *radon_get_ecdsa_method()
 	if (!ops.sign) {
 		ops.common.is_static = 1;
 
-		ops.sign = radon_ecdsa_sign;
+		ops.sign = ecdsa_sign;
 	}
 
 	return &ops;
@@ -246,15 +246,15 @@ static const ECDSA_METHOD *radon_get_ecdsa_method()
 	static ECDSA_METHOD *ops = NULL;
 
 	if (ops == NULL && (ops = ECDSA_METHOD_new(ECDSA_get_default_method())) != NULL) {
-		ECDSA_METHOD_set_sign(ops, radon_ecdsa_do_sign);
+		ECDSA_METHOD_set_sign(ops, ecdsa_do_sign);
 	}
 
 	return ops;
 #endif /* OPENSSL_IS_BORINGSSL */
 }
 
-static void radon_ex_data_free(void* parent, void* ptr, CRYPTO_EX_DATA* ad, int index, long argl, void* argp) {
-	radon_app_data_st *data = ptr;
+static void ex_data_free(void* parent, void* ptr, CRYPTO_EX_DATA* ad, int index, long argl, void* argp) {
+	app_data_st *data = ptr;
 
 	if (data != NULL) {
 		OPENSSL_free(data);
@@ -269,14 +269,14 @@ EVP_PKEY *radon_private_key_shell(X509 *cert, const char *sock, size_t sock_len)
 #ifdef OPENSSL_IS_BORINGSSL
 	ENGINE *engine = NULL;
 #endif /* OPENSSL_IS_BORINGSSL */
-	radon_app_data_st *data = NULL;
+	app_data_st *data = NULL;
 
-	if (g_rsa_exdata_radon_index == -1 && (g_rsa_exdata_radon_index = RSA_get_ex_new_index(0, NULL, NULL, NULL, radon_ex_data_free)) == -1) {
+	if (g_rsa_exdata_radon_index == -1 && (g_rsa_exdata_radon_index = RSA_get_ex_new_index(0, NULL, NULL, NULL, ex_data_free)) == -1) {
 		goto error;
 	}
 
 #ifdef OPENSSL_IS_BORINGSSL
-	if (g_ecdsa_exdata_radon_index == -1 && (g_ecdsa_exdata_radon_index = EC_KEY_get_ex_new_index(0, NULL, NULL, NULL, radon_ex_data_free)) == -1) {
+	if (g_ecdsa_exdata_radon_index == -1 && (g_ecdsa_exdata_radon_index = EC_KEY_get_ex_new_index(0, NULL, NULL, NULL, ex_data_free)) == -1) {
 		goto error;
 	}
 #endif /* OPENSSL_IS_BORINGSSL */
@@ -285,11 +285,11 @@ EVP_PKEY *radon_private_key_shell(X509 *cert, const char *sock, size_t sock_len)
 		goto error;
 	}
 
-	if ((data = OPENSSL_malloc(sizeof(radon_app_data_st))) == NULL) {
+	if ((data = OPENSSL_malloc(sizeof(app_data_st))) == NULL) {
 		goto error;
 	}
 
-	memset(data, 0, sizeof(radon_app_data_st));
+	memset(data, 0, sizeof(app_data_st));
 
 	data->address.sun_family = AF_UNIX;
 	strncpy(data->address.sun_path, sock, sock_len);
@@ -317,9 +317,9 @@ EVP_PKEY *radon_private_key_shell(X509 *cert, const char *sock, size_t sock_len)
 		}
 
 #ifdef OPENSSL_IS_BORINGSSL
-		rsa->meth = (RSA_METHOD *)radon_get_rsa_method();
+		rsa->meth = (RSA_METHOD *)get_rsa_method();
 #else /* OPENSSL_IS_BORINGSSL */
-		RSA_set_method(rsa, radon_get_rsa_method());
+		RSA_set_method(rsa, get_rsa_method());
 #endif /* OPENSSL_IS_BORINGSSL */
 
 		if (!(rsa->n = BN_dup(public_rsa->n))) {
@@ -351,7 +351,7 @@ EVP_PKEY *radon_private_key_shell(X509 *cert, const char *sock, size_t sock_len)
 			goto error;
 		}
 
-		if (!ENGINE_set_ECDSA_method(engine, radon_get_ecdsa_method(), sizeof(ECDSA_METHOD))) {
+		if (!ENGINE_set_ECDSA_method(engine, get_ecdsa_method(), sizeof(ECDSA_METHOD))) {
 			goto error;
 		}
 
@@ -370,7 +370,7 @@ EVP_PKEY *radon_private_key_shell(X509 *cert, const char *sock, size_t sock_len)
 			goto error;
 		}
 
-		ECDSA_set_method(ecdsa, radon_get_ecdsa_method());
+		ECDSA_set_method(ecdsa, get_ecdsa_method());
 #endif /* OPENSSL_IS_BORINGSSL */
 
 		EC_KEY_free(public_ecdsa); public_ecdsa = NULL;
@@ -378,8 +378,8 @@ EVP_PKEY *radon_private_key_shell(X509 *cert, const char *sock, size_t sock_len)
 #ifdef OPENSSL_IS_BORINGSSL
 		if (!EC_KEY_set_ex_data(ecdsa, g_ecdsa_exdata_radon_index, data)) {
 #else /* OPENSSL_IS_BORINGSSL */
-		if (EC_KEY_insert_key_method_data(ecdsa, data, radon_ec_key_dup_func, radon_ec_key_free_func, radon_ec_key_free_func)
-			|| !EC_KEY_get_key_method_data(ecdsa, radon_ec_key_dup_func, radon_ec_key_free_func, radon_ec_key_free_func)) {
+		if (EC_KEY_insert_key_method_data(ecdsa, data, ec_key_dup_func, ec_key_free_func, ec_key_free_func)
+			|| !EC_KEY_get_key_method_data(ecdsa, ec_key_dup_func, ec_key_free_func, ec_key_free_func)) {
 #endif /* OPENSSL_IS_BORINGSSL */
 			goto error;
 		}
