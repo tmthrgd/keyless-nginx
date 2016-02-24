@@ -10,7 +10,7 @@ local FFI_OK = base.FFI_OK
 
 
 ffi.cdef[[
-int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *sock, size_t sock_len, char **err)
+int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *sock, size_t sock_len, char **err);
 ]]
 
 
