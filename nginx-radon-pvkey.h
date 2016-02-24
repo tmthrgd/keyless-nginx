@@ -4,6 +4,8 @@
 #include <ngx_config.h>
 
 #if NGX_HTTP_SSL
+#	include <openssl/evp.h>
+#	include <openssl/x509.h>
 
 EVP_PKEY *radon_private_key_shell(X509 *cert, const char *sock, size_t sock_len);
 
