@@ -15,3 +15,5 @@ else
 	NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/nginx-radon-pvkey.h"
 	NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_viper_module.c $ngx_addon_dir/nginx-radon-pvkey.c $ngx_addon_dir/ngx_http_viper_lua_ffi_ssl.c $ngx_addon_dir/ngx_http_viper_lua_ffi_radon.c"
 fi
+
+# -*- mode: shell;-*-
