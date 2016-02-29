@@ -4,16 +4,19 @@ if [ -n "$ngx_module_link" ]; then
 	# nginx-1.9.11+
 	ngx_module_type=HTTP
 	ngx_module_name=ngx_http_viper_module
-	ngx_module_incs=
-	ngx_module_deps="$ngx_addon_dir/nginx-radon-pvkey.h"
-	ngx_module_srcs="$ngx_addon_dir/ngx_http_viper_module.c $ngx_addon_dir/nginx-radon-pvkey.c $ngx_addon_dir/ngx_http_viper_lua_ffi_ssl.c $ngx_addon_dir/ngx_http_viper_lua_ffi_radon.c"
+	ngx_module_incs=$ngx_addon_dir
+	ngx_module_deps="$ngx_addon_dir/nginx-radon.h"
+	ngx_module_srcs="$ngx_addon_dir/ngx_http_viper_module.c $ngx_addon_dir/nginx-radon.c $ngx_addon_dir/ngx_http_viper_lua_ffi_ssl.c $ngx_addon_dir/ngx_http_viper_lua_ffi_radon.c"
 	ngx_module_libs=
 
 	. auto/module
 else
 	HTTP_MODULES="$HTTP_MODULES ngx_http_viper_module"
-	NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/nginx-radon-pvkey.h"
-	NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_viper_module.c $ngx_addon_dir/nginx-radon-pvkey.c $ngx_addon_dir/ngx_http_viper_lua_ffi_ssl.c $ngx_addon_dir/ngx_http_viper_lua_ffi_radon.c"
+	NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/nginx-radon.h"
+	NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_viper_module.c $ngx_addon_dir/nginx-radon.c $ngx_addon_dir/ngx_http_viper_lua_ffi_ssl.c $ngx_addon_dir/ngx_http_viper_lua_ffi_radon.c"
 fi
+
+# for nginx-radon.patch
+CORE_INCS="$CORE_INCS $ngx_addon_dir"
 
 # -*- mode: shell;-*-

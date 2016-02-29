@@ -10,19 +10,19 @@ local FFI_OK = base.FFI_OK
 
 
 ffi.cdef[[
-int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *sock, size_t sock_len, char **err);
+int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len, char **err);
 ]]
 
 
 local _M = {}
 
-function _M.set_private_key(sock)
+function _M.set_private_key(addr)
 	local r = getfenv(0).__ngx_req
 	if not r then
 		return error("no request found")
 	end
 
-	local rc = C.ngx_http_viper_lua_ffi_radon_set_private_key(r, sock, #sock, errmsg)
+	local rc = C.ngx_http_viper_lua_ffi_radon_set_private_key(r, addr, #addr, errmsg)
 	if rc == FFI_OK then
 		return true
 	end
