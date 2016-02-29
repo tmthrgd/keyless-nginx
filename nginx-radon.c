@@ -479,7 +479,9 @@ static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *ou
 		case NID_sha1:
 			operation = OP_RSA_SIGN_SHA1;
 			break;
-		// sha224
+		case NID_sha224:
+			operation = OP_RSA_SIGN_SHA224;
+			break;
 		case NID_sha256:
 			operation = OP_RSA_SIGN_SHA256;
 			break;
