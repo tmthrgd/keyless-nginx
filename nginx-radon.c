@@ -20,6 +20,8 @@
 
 #define STATE_BUFFER_SIZE 2*1024
 
+#define REMOTE_ADDR_LEN 16
+
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out);
 
 static int key_type(SSL *ssl);
@@ -74,6 +76,7 @@ typedef enum {
 typedef struct __attribute__((__packed__)) {
 	unsigned short operation;
 	unsigned long long int in_len;
+	unsigned char remote_addr[REMOTE_ADDR_LEN];
 	unsigned char ski[SHA_DIGEST_LENGTH];
 } cmd_req_st;
 
@@ -260,6 +263,10 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	ngx_int_t event;
 	ngx_event_t *rev, *wev;
 	ngx_connection_t *ngx_conn, *c = NULL;
+	struct sockaddr_in *sin;
+#if NGX_HAVE_INET6
+	struct sockaddr_in6 *sin6;
+#endif
 
 	if (in_len + sizeof(cmd_req_st) > STATE_BUFFER_SIZE) {
 		goto error;
@@ -334,6 +341,28 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	cmd = (cmd_req_st *)state->buffer;
 	cmd->operation = operation;
 	cmd->in_len = (unsigned long long int)in_len;
+
+	switch (ngx_conn->sockaddr->sa_family) {
+#if NGX_HAVE_INET6
+		case AF_INET6:
+			sin6 = (struct sockaddr_in6 *)ngx_conn->sockaddr;
+			memcpy((char *)cmd->remote_addr, (char *)&sin6->sin6_addr.s6_addr, 16);
+			break;
+#endif /* NGX_HAVE_INET6 */
+		case AF_INET:
+			sin = (struct sockaddr_in *)ngx_conn->sockaddr;
+
+			// v4InV6Prefix: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff
+
+			/*
+			 * set by memset:
+			 * 	cmd->remote_addr[0..9] = 0
+			 */
+			cmd->remote_addr[10] = cmd->remote_addr[11] = 0xff;
+			memcpy((char *)cmd->remote_addr + 12, (char *)&sin->sin_addr.s_addr, 4);
+			break;
+	}
+
 	memcpy((char *)cmd->ski, (char *)ctx->ski, SHA_DIGEST_LENGTH);
 
 	memcpy(state->buffer + sizeof(cmd_req_st), (char *)in, in_len);
