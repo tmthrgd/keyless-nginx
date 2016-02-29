@@ -1,6 +1,6 @@
 #include <nginx-radon.h>
 
-#if !RADON_FOR_NGINX || NGX_HTTP_SSL
+#if NGX_HTTP_SSL
 
 #include <errno.h>
 #include <string.h>
@@ -13,43 +13,27 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-#if RADON_FOR_NGINX
-#	include <nginx.h>
-#	include <ngx_core.h>
-#	include <ngx_http.h>
-#	ifdef OPENSSL_IS_BORINGSSL
-#		include <ngx_event.h>
-#	endif /* OPENSSL_IS_BORINGSSL */
-#endif /* RADON_FOR_NGINX */
+#include <nginx.h>
+#include <ngx_core.h>
+#include <ngx_http.h>
+#include <ngx_event.h>
 
 #define STATE_BUFFER_SIZE 2*1024
 
-#ifndef OPENSSL_IS_BORINGSSL
-enum ssl_private_key_result_t {
-	ssl_private_key_success,
-	// ssl_private_key_retry,
-	ssl_private_key_failure,
-};
-#endif /* OPENSSL_IS_BORINGSSL */
-
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out);
 
-#ifdef OPENSSL_IS_BORINGSSL
 static int key_type(SSL *ssl);
 static size_t key_max_signature_len(SSL *ssl);
 static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const EVP_MD *md, const uint8_t *in, size_t in_len);
 #define key_sign_complete operation_complete
 static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
 #define key_decrypt_complete operation_complete
-#endif /* OPENSSL_IS_BORINGSSL */
 
 typedef struct radon_ctx_st {
-#ifdef OPENSSL_IS_BORINGSSL
 	struct {
 		int type;
 		size_t sig_len;
 	} key;
-#endif /* OPENSSL_IS_BORINGSSL */
 	struct sockaddr *address;
 	size_t address_len;
 	unsigned char ski[SHA_DIGEST_LENGTH];
@@ -57,10 +41,8 @@ typedef struct radon_ctx_st {
 
 typedef struct {
 	int sock;
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 	ngx_connection_t *c;
 	ngx_connection_t *ngx_conn;
-#endif
 	char buffer[STATE_BUFFER_SIZE];
 	size_t buffer_pos;
 } state_st;
@@ -99,7 +81,6 @@ static int g_ssl_exdata_ctx_index = -1;
 static int g_ssl_ctx_exdata_ctx_index = -1;
 static int g_ssl_exdata_state_index = -1;
 
-#ifdef OPENSSL_IS_BORINGSSL
 const SSL_PRIVATE_KEY_METHOD key_method = {
 	key_type,
 	key_max_signature_len,
@@ -108,7 +89,6 @@ const SSL_PRIVATE_KEY_METHOD key_method = {
 	key_decrypt,
 	key_decrypt_complete,
 };
-#endif /* OPENSSL_IS_BORINGSSL */
 
 RADON_CTX *radon_create(X509 *cert, struct sockaddr *address, size_t address_len)
 {
@@ -141,19 +121,12 @@ RADON_CTX *radon_create(X509 *cert, struct sockaddr *address, size_t address_len
 		goto error;
 	}
 
-#ifdef OPENSSL_IS_BORINGSSL
 	ctx = OPENSSL_malloc(sizeof(RADON_CTX));
 	if (!ctx) {
 		goto error;
 	}
 
 	memset(ctx, 0, sizeof(RADON_CTX));
-#else /* OPENSSL_IS_BORINGSSL */
-	ctx = OPENSSL_zalloc(sizeof(RADON_CTX));
-	if (!ctx) {
-		goto error;
-	}
-#endif /* OPENSSL_IS_BORINGSSL */
 
 	ctx->key.type = EVP_PKEY_id(public_key);
 	ctx->key.sig_len = EVP_PKEY_size(public_key);
@@ -200,7 +173,6 @@ error:
 	return NULL;
 }
 
-#if RADON_FOR_NGINX
 RADON_CTX *radon_create_from_string(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len)
 {
 	ngx_url_t url;
@@ -218,7 +190,6 @@ RADON_CTX *radon_create_from_string(ngx_pool_t *pool, X509 *cert, const char *ad
 
 	return radon_create(cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
 }
-#endif
 
 int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx)
 {
@@ -226,11 +197,7 @@ int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx)
 		return 0;
 	}
 
-#ifdef OPENSSL_IS_BORINGSSL
 	SSL_set_private_key_method(ssl, &key_method);
-#else /* OPENSSL_IS_BORINGSSL */
-#	error "only supported on BoringSSL"
-#endif /* OPENSSL_IS_BORINGSSL */
 	return 1;
 }
 
@@ -240,11 +207,7 @@ int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx)
 		return 0;
 	}
 
-#ifdef OPENSSL_IS_BORINGSSL
 	SSL_CTX_set_private_key_method(ssl_ctx, &key_method);
-#else /* OPENSSL_IS_BORINGSSL */
-#	error "only supported on BoringSSL"
-#endif /* OPENSSL_IS_BORINGSSL */
 	return 1;
 }
 
@@ -257,7 +220,6 @@ void radon_free(RADON_CTX *ctx)
 	OPENSSL_free(ctx);
 }
 
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 static void socket_udp_handler(ngx_event_t *ev)
 {
 	ngx_connection_t *c, *ngx_conn;
@@ -286,7 +248,6 @@ static void socket_udp_handler(ngx_event_t *ev)
 
 	ngx_post_event(ngx_conn->write, &ngx_posted_events);
 }
-#endif /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
 
 static enum ssl_private_key_result_t start_operation(operation_et operation, SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
@@ -296,11 +257,9 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	cmd_req_st *cmd = NULL;
 	size_t i = 0;
 	int wrote = -1;
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 	ngx_int_t event;
 	ngx_event_t *rev, *wev;
 	ngx_connection_t *ngx_conn, *c = NULL;
-#endif /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
 
 	if (in_len + sizeof(cmd_req_st) > STATE_BUFFER_SIZE) {
 		goto error;
@@ -314,30 +273,18 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 		}
 	}
 
-#ifdef OPENSSL_IS_BORINGSSL
 	state = OPENSSL_malloc(sizeof(state_st));
 	if (!state) {
 		goto error;
 	}
 
 	memset(state, 0, sizeof(state_st));
-#else /* OPENSSL_IS_BORINGSSL */
-	state = OPENSSL_zalloc(sizeof(state_st));
-	if (!state) {
-		goto error;
-	}
-#endif /* OPENSSL_IS_BORINGSSL */
 
-	sock = socket(ctx->address->sa_family, SOCK_DGRAM
-#ifdef OPENSSL_IS_BORINGSSL
-		| SOCK_NONBLOCK
-#endif /* OPENSSL_IS_BORINGSSL */
-		, 0);
+	sock = socket(ctx->address->sa_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
 	if (sock == -1) {
 		goto error;
 	}
 
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 	ngx_conn = ngx_ssl_get_connection(ssl);
 	state->ngx_conn = ngx_conn;
 
@@ -356,18 +303,15 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	wev->log = ngx_conn->log;
 
 	c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
-#endif /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
 
 	if (connect(sock, ctx->address, ctx->address_len) == -1) {
 		goto error;
 	}
 	state->sock = sock;
 
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 	/* UDP sockets are always ready to write */
 	wev->ready = 1;
 
-	/* begin: should this be *after* write */
 	if (ngx_add_event) {
 		event = (ngx_event_flags & NGX_USE_CLEAR_EVENT) ?
 				/* kqueue, epoll */                 NGX_CLEAR_EVENT:
@@ -386,8 +330,6 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	}
 
 	rev->handler = socket_udp_handler;
-	/* end: should this be *after* write */
-#endif /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
 
 	cmd = (cmd_req_st *)state->buffer;
 	cmd->operation = operation;
@@ -409,27 +351,17 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 
 	OPENSSL_cleanse(state->buffer, STATE_BUFFER_SIZE);
 
-#ifdef OPENSSL_IS_BORINGSSL
 	return ssl_private_key_retry;
-#else /* OPENSSL_IS_BORINGSSL */
-	return operation_complete(ssl, out, out_len, max_out);
-#endif /* OPENSSL_IS_BORINGSSL */
 
 error:
 	if (state != NULL) {
-#ifdef OPENSSL_IS_BORINGSSL
 		OPENSSL_cleanse(state, sizeof(state_st));
 		OPENSSL_free(state);
-#else /* OPENSSL_IS_BORINGSSL */
-		OPENSSL_clear_free(state, sizeof(state_st));
-#endif /* OPENSSL_IS_BORINGSSL */
 	}
 
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 	if (c != NULL) {
 		ngx_free_connection(c);
 	}
-#endif /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
 
 	if (sock != -1) {
 		close(sock);
@@ -450,34 +382,10 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 		goto cleanup;
 	}
 
-#if !RADON_FOR_NGINX || !defined(OPENSSL_IS_BORINGSSL)
-	{
-	ssize_t n = read(state->sock, state->buffer + state->buffer_pos, STATE_BUFFER_SIZE - state->buffer_pos);
-
-	if (n == -1) {
-#ifdef OPENSSL_IS_BORINGSSL
-		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			return ssl_private_key_retry;
-		}
-#endif /* OPENSSL_IS_BORINGSSL */
-
-		ret = ssl_private_key_failure;
-		goto cleanup;
-	}
-
-	state->buffer_pos += n;
-	}
-#endif /* !RADON_FOR_NGINX || !defined(OPENSSL_IS_BORINGSSL) */
-
 	len = (unsigned long long *)state->buffer;
 
 	if (state->buffer_pos < sizeof(unsigned long long)) {
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 		return ssl_private_key_retry;
-#else /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
-		ret = ssl_private_key_failure;
-		goto cleanup;
-#endif /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
 	}
 
 	if (*len == 0 || *len > max_out) {
@@ -486,12 +394,7 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	}
 
 	if (state->buffer_pos - sizeof(unsigned long long) < *len) {
-#ifdef OPENSSL_IS_BORINGSSL
 		return ssl_private_key_retry;
-#else /* OPENSSL_IS_BORINGSSL */
-		ret = ssl_private_key_failure;
-		goto cleanup;
-#endif /* OPENSSL_IS_BORINGSSL */
 	}
 
 	memcpy((char *)out, state->buffer + sizeof(unsigned long long), *len);
@@ -500,28 +403,21 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	ret = ssl_private_key_success;
 cleanup:
 	if (state != NULL) {
-#if RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL)
 		if (state->c != NULL) {
 			ngx_free_connection(state->c); state->c = NULL;
 		}
-#endif /* RADON_FOR_NGINX && defined(OPENSSL_IS_BORINGSSL) */
 
 		if (state->sock != -1) {
 			close(state->sock); state->sock = -1;
 		}
 
-#ifdef OPENSSL_IS_BORINGSSL
 		OPENSSL_cleanse(state, sizeof(state_st));
 		OPENSSL_free(state);
-#else /* OPENSSL_IS_BORINGSSL */
-		OPENSSL_clear_free(state, sizeof(state_st));
-#endif /* OPENSSL_IS_BORINGSSL */
 	}
 
 	return ret;
 }
 
-#ifdef OPENSSL_IS_BORINGSSL
 static int key_type(SSL *ssl)
 {
 	RADON_CTX *ctx = NULL;
@@ -597,9 +493,7 @@ static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t 
 {
 	return start_operation(OP_RSA_DECRYPT_RAW, ssl, out, out_len, max_out, in, in_len);
 }
-#endif /* OPENSSL_IS_BORINGSSL */
 
-#if RADON_FOR_NGINX
 int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len, char **err)
 {
 	ngx_ssl_conn_t *ssl_conn;
@@ -638,6 +532,5 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 
 	return NGX_OK;
 }
-#endif /* RADON_FOR_NGINX */
 
 #endif /* NGX_HTTP_SSL */
