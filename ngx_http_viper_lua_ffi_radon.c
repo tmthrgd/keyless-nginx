@@ -1,7 +1,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
-#include <radon.h>
+#include <nginx-radon.h>
 
 #if NGX_HTTP_SSL
 
