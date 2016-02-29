@@ -117,7 +117,7 @@ RADON_CTX *radon_create(X509 *cert, struct sockaddr *address, size_t address_len
 	}
 
 	if (g_ssl_ctx_exdata_ctx_index == -1) {
-		g_ssl_ctx_exdata_ctx_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+		g_ssl_ctx_exdata_ctx_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_ctx_exdata_ctx_index == -1) {
 			goto error;
 		}
