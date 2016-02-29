@@ -92,7 +92,7 @@ const SSL_PRIVATE_KEY_METHOD key_method = {
 	key_decrypt_complete,
 };
 
-RADON_CTX *radon_create(X509 *cert, struct sockaddr *address, size_t address_len)
+RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, size_t address_len)
 {
 	EVP_PKEY *public_key = NULL;
 	RADON_CTX *ctx = NULL;
@@ -123,17 +123,15 @@ RADON_CTX *radon_create(X509 *cert, struct sockaddr *address, size_t address_len
 		goto error;
 	}
 
-	ctx = OPENSSL_malloc(sizeof(RADON_CTX));
+	ctx = ngx_pcalloc(pool, sizeof(RADON_CTX));
 	if (!ctx) {
 		goto error;
 	}
 
-	memset(ctx, 0, sizeof(RADON_CTX));
-
 	ctx->key.type = EVP_PKEY_id(public_key);
 	ctx->key.sig_len = EVP_PKEY_size(public_key);
 
-	ctx->address = OPENSSL_malloc(address_len);
+	ctx->address = ngx_palloc(pool, address_len);
 	if (!ctx->address) {
 		goto error;
 	}
@@ -166,10 +164,10 @@ error:
 
 	if (ctx != NULL) {
 		if (ctx->address != NULL) {
-			OPENSSL_free(ctx->address); ctx->address = NULL;
+			ngx_pfree(pool, ctx->address);
 		}
 
-		OPENSSL_free(ctx);
+		ngx_pfree(pool, ctx);
 	}
 
 	return NULL;
@@ -190,7 +188,7 @@ RADON_CTX *radon_create_from_string(ngx_pool_t *pool, X509 *cert, const char *ad
 		return NULL;
 	}
 
-	return radon_create(cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
+	return radon_create(pool, cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
 }
 
 int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx)
@@ -213,20 +211,13 @@ int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx)
 	return 1;
 }
 
-void radon_free(RADON_CTX *ctx)
+void radon_free(ngx_pool_t *pool, RADON_CTX *ctx)
 {
 	if (ctx->address != NULL) {
-		OPENSSL_free(ctx->address);
+		ngx_pfree(pool, ctx->address);
 	}
 
-	OPENSSL_free(ctx);
-}
-
-static void radon_cleanup_free_handler(void *data)
-{
-	RADON_CTX *ctx = data;
-
-	radon_free(ctx);
+	ngx_pfree(pool, ctx);
 }
 
 static void socket_udp_handler(ngx_event_t *ev)
@@ -287,20 +278,19 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 		}
 	}
 
-	state = OPENSSL_malloc(sizeof(state_st));
+	ngx_conn = ngx_ssl_get_connection(ssl);
+
+	state = ngx_pcalloc(ngx_conn->pool, sizeof(state_st));
 	if (!state) {
 		goto error;
 	}
 
-	memset(state, 0, sizeof(state_st));
+	state->ngx_conn = ngx_conn;
 
 	sock = socket(ctx->address->sa_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
 	if (sock == -1) {
 		goto error;
 	}
-
-	ngx_conn = ngx_ssl_get_connection(ssl);
-	state->ngx_conn = ngx_conn;
 
 	c = ngx_get_connection(sock, ngx_conn->log);
 	if (c == NULL) {
@@ -391,7 +381,7 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 error:
 	if (state != NULL) {
 		OPENSSL_cleanse(state, sizeof(state_st));
-		OPENSSL_free(state);
+		ngx_pfree(ngx_conn->pool, state);
 	}
 
 	if (c != NULL) {
@@ -405,6 +395,7 @@ error:
 
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out)
 {
+	ngx_connection_t *c;
 	state_st *state = NULL;
 	unsigned long long int *len;
 	enum ssl_private_key_result_t ret;
@@ -441,7 +432,9 @@ cleanup:
 		}
 
 		OPENSSL_cleanse(state, sizeof(state_st));
-		OPENSSL_free(state);
+
+		c = ngx_ssl_get_connection(ssl);
+		ngx_pfree(c->pool, state);
 	}
 
 	return ret;
@@ -527,7 +520,6 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 {
 	ngx_ssl_conn_t *ssl_conn;
 	ngx_connection_t *c;
-	ngx_pool_cleanup_t *cln;
 	X509 *x509;
 	RADON_CTX *ctx;
 
@@ -548,31 +540,20 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 		return NGX_ERROR;
 	}
 
-	ctx = radon_create_from_string(r->pool, x509, addr, addr_len);
+	c = ngx_ssl_get_connection(ssl_conn);
+
+	ctx = radon_create_from_string(c->pool, x509, addr, addr_len);
 	if (ctx == NULL) {
 		*err = "radon_create failed";
 		return NGX_ERROR;
 	}
 
 	if (!radon_attach_ssl(ssl_conn, ctx)) {
-		radon_free(ctx);
+		radon_free(c->pool, ctx);
 
 		*err = "radon_attach failed";
 		return NGX_ERROR;
 	}
-
-	c = ngx_ssl_get_connection(ssl_conn);
-
-	cln = ngx_pool_cleanup_add(c->pool, 0);
-	if (cln == NULL) {
-		radon_free(ctx);
-
-		*err = "failed to add cleanup handler";
-		return NGX_ERROR;
-	}
-
-	cln->handler = radon_cleanup_free_handler;
-	cln->data = ctx;
 
 	return NGX_OK;
 }
