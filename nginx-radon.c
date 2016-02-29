@@ -173,7 +173,7 @@ error:
 	return NULL;
 }
 
-RADON_CTX *radon_create_from_string(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len)
+RADON_CTX *radon_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len)
 {
 	ngx_url_t url;
 
@@ -542,7 +542,7 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 
 	c = ngx_ssl_get_connection(ssl_conn);
 
-	ctx = radon_create_from_string(c->pool, x509, addr, addr_len);
+	ctx = radon_parse_and_create(c->pool, x509, addr, addr_len);
 	if (ctx == NULL) {
 		*err = "radon_create failed";
 		return NGX_ERROR;

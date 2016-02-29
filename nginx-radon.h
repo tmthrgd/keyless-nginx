@@ -17,7 +17,7 @@
 typedef struct radon_ctx_st RADON_CTX;
 
 RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, size_t address_len);
-RADON_CTX *radon_create_from_string(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len);
+RADON_CTX *radon_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len);
 
 int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx);
 int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx);
