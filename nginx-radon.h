@@ -28,9 +28,8 @@ RADON_CTX *radon_create(X509 *cert, struct sockaddr *address, size_t address_len
 RADON_CTX *radon_create_from_string(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len);
 #endif
 
-int radon_attach(SSL *ssl, RADON_CTX *ctx);
-int radon_attach_to_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx);
-int radon_attach_from_ssl_ctx(SSL *ssl);
+int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx);
+int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx);
 
 void radon_free(RADON_CTX *ctx);
 

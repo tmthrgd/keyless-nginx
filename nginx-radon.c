@@ -90,8 +90,8 @@ typedef struct __attribute__((__packed__)) {
 } cmd_req_st;
 
 static int g_ssl_exdata_ctx_index = -1;
-static int g_ssl_exdata_state_index = -1;
 static int g_ssl_ctx_exdata_ctx_index = -1;
+static int g_ssl_exdata_state_index = -1;
 
 #ifdef OPENSSL_IS_BORINGSSL
 const SSL_PRIVATE_KEY_METHOD key_method = {
@@ -116,16 +116,16 @@ RADON_CTX *radon_create(X509 *cert, struct sockaddr *address, size_t address_len
 		}
 	}
 
-	if (g_ssl_exdata_state_index == -1) {
-		g_ssl_exdata_state_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
-		if (g_ssl_exdata_state_index == -1) {
+	if (g_ssl_ctx_exdata_ctx_index == -1) {
+		g_ssl_ctx_exdata_ctx_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+		if (g_ssl_ctx_exdata_ctx_index == -1) {
 			goto error;
 		}
 	}
 
-	if (g_ssl_ctx_exdata_ctx_index == -1) {
-		g_ssl_ctx_exdata_ctx_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
-		if (g_ssl_ctx_exdata_ctx_index == -1) {
+	if (g_ssl_exdata_state_index == -1) {
+		g_ssl_exdata_state_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+		if (g_ssl_exdata_state_index == -1) {
 			goto error;
 		}
 	}
@@ -214,7 +214,7 @@ RADON_CTX *radon_create_from_string(ngx_pool_t *pool, X509 *cert, const char *ad
 }
 #endif
 
-int radon_attach(SSL *ssl, RADON_CTX *ctx)
+int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx)
 {
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_ctx_index, ctx)) {
 		return 0;
@@ -228,33 +228,18 @@ int radon_attach(SSL *ssl, RADON_CTX *ctx)
 	return 1;
 }
 
-int radon_attach_to_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx)
+int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx)
 {
-#ifdef OPENSSL_IS_BORINGSSL
 	if (!SSL_CTX_set_ex_data(ssl_ctx, g_ssl_ctx_exdata_ctx_index, ctx)) {
 		return 0;
 	}
 
-	return 1;
+#ifdef OPENSSL_IS_BORINGSSL
+	SSL_CTX_set_private_key_method(ssl_ctx, &key_method);
 #else /* OPENSSL_IS_BORINGSSL */
 #	error "only supported on BoringSSL"
 #endif /* OPENSSL_IS_BORINGSSL */
-}
-
-int radon_attach_from_ssl_ctx(SSL *ssl)
-{
-#ifdef OPENSSL_IS_BORINGSSL
-	RADON_CTX *ctx = NULL;
-
-	ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
-	if (!ctx) {
-		return 0;
-	}
-
-	return radon_attach(ssl, ctx);
-#else /* OPENSSL_IS_BORINGSSL */
 	return 1;
-#endif /* OPENSSL_IS_BORINGSSL */
 }
 
 void radon_free(RADON_CTX *ctx)
@@ -317,7 +302,10 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 
 	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
 	if (!ctx) {
-		goto error;
+		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
+		if (!ctx) {
+			goto error;
+		}
 	}
 
 #ifdef OPENSSL_IS_BORINGSSL
@@ -533,7 +521,10 @@ static int key_type(SSL *ssl)
 
 	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
 	if (!ctx) {
-		return 0;
+		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
+		if (!ctx) {
+			return 0;
+		}
 	}
 
 	return ctx->key.type;
@@ -545,7 +536,10 @@ static size_t key_max_signature_len(SSL *ssl)
 
 	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
 	if (!ctx) {
-		return 0;
+		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
+		if (!ctx) {
+			return 0;
+		}
 	}
 
 	return ctx->key.sig_len;
@@ -579,7 +573,10 @@ static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *ou
 
 	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
 	if (!ctx) {
-		return ssl_private_key_failure;
+		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
+		if (!ctx) {
+			return ssl_private_key_failure;
+		}
 	}
 
 	if (ctx->key.type == EVP_PKEY_EC) {
@@ -624,7 +621,7 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 		return NGX_ERROR;
 	}
 
-	if (!radon_attach(ssl_conn, ctx)) {
+	if (!radon_attach_ssl(ssl_conn, ctx)) {
 		radon_free(ctx);
 
 		*err = "radon_attach failed";
