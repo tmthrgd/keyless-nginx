@@ -42,7 +42,6 @@ typedef struct radon_ctx_st {
 } RADON_CTX;
 
 typedef struct {
-	int sock;
 	ngx_connection_t *c;
 	ngx_connection_t *ngx_conn;
 	char buffer[STATE_BUFFER_SIZE];
@@ -239,11 +238,12 @@ static void socket_udp_handler(ngx_event_t *ev)
 
 	n = ngx_udp_recv(c, (u_char *)state->buffer + state->buffer_pos, STATE_BUFFER_SIZE - state->buffer_pos);
 
-	if (n == -1) {
-		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			ngx_handle_read_event(c->read, 0);
-		}
+	if (n == NGX_ERROR) {
+		return;
+	}
 
+	if (n == NGX_AGAIN) {
+		ngx_handle_read_event(c->read, 0);
 		return;
 	}
 
@@ -314,7 +314,6 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	if (connect(sock, ctx->address, ctx->address_len) == -1) {
 		goto error;
 	}
-	state->sock = sock;
 
 	/* UDP sockets are always ready to write */
 	wev->ready = 1;
@@ -389,10 +388,8 @@ error:
 	}
 
 	if (c != NULL) {
-		ngx_free_connection(c);
-	}
-
-	if (sock != -1) {
+		ngx_close_connection(c);
+	} else if (sock != -1) {
 		close(sock);
 	}
 
@@ -422,22 +419,18 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 		goto cleanup;
 	}
 
-	if (state->buffer_pos - sizeof(unsigned long long) < *len) {
+	if (state->buffer_pos - sizeof(unsigned long long int) < *len) {
 		return ssl_private_key_retry;
 	}
 
-	memcpy((char *)out, state->buffer + sizeof(unsigned long long), *len);
+	memcpy((char *)out, state->buffer + sizeof(unsigned long long int), *len);
 
 	*out_len = *len;
 	ret = ssl_private_key_success;
 cleanup:
 	if (state != NULL) {
 		if (state->c != NULL) {
-			ngx_free_connection(state->c); state->c = NULL;
-		}
-
-		if (state->sock != -1) {
-			close(state->sock); state->sock = -1;
+			ngx_close_connection(state->c);
 		}
 
 		OPENSSL_cleanse(state, sizeof(state_st));
