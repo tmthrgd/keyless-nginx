@@ -402,7 +402,7 @@ error:
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out)
 {
 	state_st *state = NULL;
-	unsigned long long *len;
+	unsigned long long int *len;
 	enum ssl_private_key_result_t ret;
 
 	state = SSL_get_ex_data(ssl, g_ssl_exdata_state_index);
@@ -411,9 +411,9 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 		goto cleanup;
 	}
 
-	len = (unsigned long long *)state->buffer;
+	len = (unsigned long long int *)state->buffer;
 
-	if (state->buffer_pos < sizeof(unsigned long long)) {
+	if (state->buffer_pos < sizeof(unsigned long long int)) {
 		return ssl_private_key_retry;
 	}
 
