@@ -34,18 +34,22 @@ enum ssl_private_key_result_t {
 
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out);
 
+#ifdef OPENSSL_IS_BORINGSSL
 static int key_type(SSL *ssl);
 static size_t key_max_signature_len(SSL *ssl);
 static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const EVP_MD *md, const uint8_t *in, size_t in_len);
 #define key_sign_complete operation_complete
 static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
 #define key_decrypt_complete operation_complete
+#endif /* OPENSSL_IS_BORINGSSL */
 
 typedef struct radon_ctx_st {
+#ifdef OPENSSL_IS_BORINGSSL
 	struct {
 		int type;
 		size_t sig_len;
 	} key;
+#endif /* OPENSSL_IS_BORINGSSL */
 	struct sockaddr *address;
 	size_t address_len;
 	unsigned char ski[SHA_DIGEST_LENGTH];
@@ -517,6 +521,7 @@ cleanup:
 	return ret;
 }
 
+#ifdef OPENSSL_IS_BORINGSSL
 static int key_type(SSL *ssl)
 {
 	RADON_CTX *ctx = NULL;
@@ -592,6 +597,7 @@ static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t 
 {
 	return start_operation(OP_RSA_DECRYPT_RAW, ssl, out, out_len, max_out, in, in_len);
 }
+#endif /* OPENSSL_IS_BORINGSSL */
 
 #if RADON_FOR_NGINX
 int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len, char **err)
