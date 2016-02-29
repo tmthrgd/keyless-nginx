@@ -61,6 +61,9 @@ typedef struct {
 	size_t buffer_pos;
 } state_st;
 
+#define OP_ECDSA_MASK 0x10
+#define OP_CUSTOM_MASK 0x100
+
 typedef enum {
 	OP_RSA_DECRYPT_RAW    = 0x08,
 
@@ -71,10 +74,9 @@ typedef enum {
 	OP_RSA_SIGN_SHA256    = 0x05,
 	OP_RSA_SIGN_SHA384    = 0x06,
 	OP_RSA_SIGN_SHA512    = 0x07,
-	OP_RSA_SIGN_RAW       = 0x101,
+	OP_RSA_SIGN_RAW       = OP_CUSTOM_MASK | 0x01,
 
 	// Sign data using ECDSA
-	OP_ECDSA_MASK         = 0x10,
 	OP_ECDSA_SIGN_MD5SHA1 = 0x12,
 	OP_ECDSA_SIGN_SHA1    = 0x13,
 	OP_ECDSA_SIGN_SHA224  = 0x14,
