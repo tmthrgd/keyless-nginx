@@ -222,6 +222,13 @@ void radon_free(RADON_CTX *ctx)
 	OPENSSL_free(ctx);
 }
 
+static void radon_cleanup_free_handler(void *data)
+{
+	RADON_CTX *ctx = data;
+
+	radon_free(ctx);
+}
+
 static void socket_udp_handler(ngx_event_t *ev)
 {
 	ngx_connection_t *c, *ngx_conn;
@@ -519,6 +526,8 @@ static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t 
 int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len, char **err)
 {
 	ngx_ssl_conn_t *ssl_conn;
+	ngx_connection_t *c;
+	ngx_pool_cleanup_t *cln;
 	X509 *x509;
 	RADON_CTX *ctx;
 
@@ -551,6 +560,19 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 		*err = "radon_attach failed";
 		return NGX_ERROR;
 	}
+
+	c = ngx_ssl_get_connection(ssl_conn);
+
+	cln = ngx_pool_cleanup_add(c->pool, 0);
+	if (cln == NULL) {
+		radon_free(ctx);
+
+		*err = "failed to add cleanup handler";
+		return NGX_ERROR;
+	}
+
+	cln->handler = radon_cleanup_free_handler;
+	cln->data = ctx;
 
 	return NGX_OK;
 }
