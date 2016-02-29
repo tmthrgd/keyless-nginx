@@ -22,7 +22,7 @@
 #	endif /* OPENSSL_IS_BORINGSSL */
 #endif /* RADON_FOR_NGINX */
 
-#define STATE_BUFFER_SIZE 4*1024
+#define STATE_BUFFER_SIZE 2*1024
 
 #ifndef OPENSSL_IS_BORINGSSL
 enum ssl_private_key_result_t {
