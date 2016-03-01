@@ -47,8 +47,8 @@ typedef struct {
 	unsigned int req_id;
 	ngx_connection_t *c;
 	ngx_connection_t *ngx_conn;
-	unsigned char buffer[STATE_BUFFER_SIZE];
 	size_t buffer_pos;
+	unsigned char buffer[STATE_BUFFER_SIZE];
 } state_st;
 
 static int g_ssl_exdata_ctx_index = -1;
