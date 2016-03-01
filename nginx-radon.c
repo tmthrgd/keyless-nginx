@@ -7,20 +7,23 @@
 #include <ngx_http.h>
 #include <ngx_event.h>
 
+#include <kssl.h>
+#include <kssl_helpers.h>
+
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
+#include <openssl/bn.h>
 #include <openssl/crypto.h>
 #include <openssl/digest.h>
+#include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
 #define STATE_BUFFER_SIZE 2*1024
-
-#define REMOTE_ADDR_LEN 16
 
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out);
 
@@ -38,44 +41,16 @@ typedef struct radon_ctx_st {
 	} key;
 	struct sockaddr *address;
 	size_t address_len;
-	unsigned char ski[SHA_DIGEST_LENGTH];
+	unsigned char ski[KSSL_SKI_SIZE];
 } RADON_CTX;
 
 typedef struct {
+	unsigned int req_id;
 	ngx_connection_t *c;
 	ngx_connection_t *ngx_conn;
-	char buffer[STATE_BUFFER_SIZE];
+	unsigned char buffer[STATE_BUFFER_SIZE];
 	size_t buffer_pos;
 } state_st;
-
-#define OP_ECDSA_MASK 0x10
-
-typedef enum {
-	OP_RSA_DECRYPT_RAW    = 0x08,
-
-	// Sign data using RSA
-	OP_RSA_SIGN_MD5SHA1   = 0x02,
-	OP_RSA_SIGN_SHA1      = 0x03,
-	OP_RSA_SIGN_SHA224    = 0x04,
-	OP_RSA_SIGN_SHA256    = 0x05,
-	OP_RSA_SIGN_SHA384    = 0x06,
-	OP_RSA_SIGN_SHA512    = 0x07,
-
-	// Sign data using ECDSA
-	OP_ECDSA_SIGN_MD5SHA1 = 0x12,
-	OP_ECDSA_SIGN_SHA1    = 0x13,
-	OP_ECDSA_SIGN_SHA224  = 0x14,
-	OP_ECDSA_SIGN_SHA256  = 0x15,
-	OP_ECDSA_SIGN_SHA384  = 0x16,
-	OP_ECDSA_SIGN_SHA512  = 0x17,
-} operation_et;
-
-typedef struct __attribute__((__packed__)) {
-	unsigned short operation;
-	unsigned long long int in_len;
-	unsigned char remote_addr[REMOTE_ADDR_LEN];
-	unsigned char ski[SHA_DIGEST_LENGTH];
-} cmd_req_st;
 
 static int g_ssl_exdata_ctx_index = -1;
 static int g_ssl_ctx_exdata_ctx_index = -1;
@@ -242,12 +217,11 @@ static void socket_udp_handler(ngx_event_t *ev)
 	ngx_post_event(ngx_conn->write, &ngx_posted_events);
 }
 
-static enum ssl_private_key_result_t start_operation(operation_et operation, SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
+static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
 	int sock = -1;
 	RADON_CTX *ctx = NULL;
 	state_st *state = NULL;
-	cmd_req_st *cmd = NULL;
 	size_t i = 0;
 	int wrote = -1;
 	ngx_int_t event;
@@ -257,8 +231,11 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 #if NGX_HAVE_INET6
 	struct sockaddr_in6 *sin6;
 #endif
+	kssl_header_st header;
+	kssl_operation_st operation;
+	size_t length;
 
-	if (in_len + sizeof(cmd_req_st) > STATE_BUFFER_SIZE) {
+	if (in_len + KSSL_HEADER_SIZE > STATE_BUFFER_SIZE) {
 		goto error;
 	}
 
@@ -288,6 +265,7 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	if (!c) {
 		goto error;
 	}
+
 	state->c = c;
 
 	c->data = state;
@@ -326,41 +304,86 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 
 	rev->handler = socket_udp_handler;
 
-	cmd = (cmd_req_st *)state->buffer;
-	cmd->operation = operation;
-	cmd->in_len = (unsigned long long int)in_len;
+	header.version_maj = KSSL_VERSION_MAJ;
+	header.version_min = KSSL_VERSION_MIN;
+
+	if (RAND_bytes((uint8_t *)&header.id, sizeof(header.id)) != 1) {
+		goto error;
+	}
+
+	state->req_id = header.id;
+
+	kssl_zero_operation(&operation);
+
+	operation.is_opcode_set = 1;
+	operation.opcode = opcode;
+
+	operation.is_ski_set = 1;
+	operation.ski = ctx->ski;
+
+	operation.sni = (const unsigned char *)SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	if (operation.sni) {
+		operation.is_sni_set = 1;
+		operation.sni_len = ngx_strlen(operation.sni);
+	}
+
+	operation.is_payload_set = 1;
+	operation.payload_len = in_len;
+	operation.payload = in;
 
 	switch (ngx_conn->sockaddr->sa_family) {
 #if NGX_HAVE_INET6
 		case AF_INET6:
 			sin6 = (struct sockaddr_in6 *)ngx_conn->sockaddr;
-			memcpy((char *)cmd->remote_addr, (char *)&sin6->sin6_addr.s6_addr, 16);
+
+			operation.is_client_ip_set = 1;
+			operation.client_ip_len = 16;
+			operation.client_ip = (const unsigned char *)&sin6->sin6_addr.s6_addr;
 			break;
 #endif /* NGX_HAVE_INET6 */
 		case AF_INET:
 			sin = (struct sockaddr_in *)ngx_conn->sockaddr;
 
-			// v4InV6Prefix: 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff
-
-			/*
-			 * set by memset:
-			 * 	cmd->remote_addr[0..9] = 0
-			 */
-			cmd->remote_addr[10] = cmd->remote_addr[11] = 0xff;
-			memcpy((char *)cmd->remote_addr + 12, (char *)&sin->sin_addr.s_addr, 4);
+			operation.is_client_ip_set = 1;
+			operation.client_ip_len = 4;
+			operation.client_ip = (const unsigned char *)&sin->sin_addr.s_addr;
 			break;
 	}
 
-	memcpy((char *)cmd->ski, (char *)ctx->ski, SHA_DIGEST_LENGTH);
+	if (ngx_connection_local_sockaddr(ngx_conn, NULL, 0) != NGX_OK) {
+		goto error;
+	}
 
-	memcpy(state->buffer + sizeof(cmd_req_st), (char *)in, in_len);
+	switch (ngx_conn->local_sockaddr->sa_family) {
+#if NGX_HAVE_INET6
+		case AF_INET6:
+			sin6 = (struct sockaddr_in6 *)ngx_conn->local_sockaddr;
+
+			operation.is_server_ip_set = 1;
+			operation.server_ip_len = 16;
+			operation.server_ip = (const unsigned char *)&sin6->sin6_addr.s6_addr;
+			break;
+#endif /* NGX_HAVE_INET6 */
+		case AF_INET:
+			sin = (struct sockaddr_in *)ngx_conn->local_sockaddr;
+
+			operation.is_server_ip_set = 1;
+			operation.server_ip_len = 4;
+			operation.server_ip = (const unsigned char *)&sin->sin_addr.s_addr;
+			break;
+	}
+
+	length = STATE_BUFFER_SIZE;
+	if (!kssl_flatten_operation(&header, &operation, (unsigned char *)state->buffer, &length)) {
+		goto error;
+	}
 
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_state_index, state)) {
 		goto error;
 	}
 
-	for (i = 0; i < in_len + sizeof(cmd_req_st); i += wrote) {
-		wrote = write(sock, state->buffer + i, in_len + sizeof(cmd_req_st) - i);
+	for (i = 0; i < length; i += wrote) {
+		wrote = write(sock, state->buffer + i, length - i);
 		if (wrote == -1) {
 			goto error;
 		}
@@ -389,7 +412,8 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 {
 	ngx_connection_t *c;
 	state_st *state = NULL;
-	unsigned long long int *len;
+	kssl_header_st header;
+	kssl_operation_st operation;
 	enum ssl_private_key_result_t rc;
 
 	state = SSL_get_ex_data(ssl, g_ssl_exdata_state_index);
@@ -398,22 +422,61 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 		goto cleanup;
 	}
 
-	len = (unsigned long long int *)state->buffer;
-
-	if (state->buffer_pos < sizeof(unsigned long long int)
-		|| state->buffer_pos < sizeof(unsigned long long int) + *len) {
+	if (state->buffer_pos < KSSL_HEADER_SIZE) {
 		return ssl_private_key_retry;
 	}
 
-	if (*len == 0 || *len > max_out) {
+	if (!kssl_parse_header(state->buffer, &header)) {
 		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
 
-	memcpy((char *)out, state->buffer + sizeof(unsigned long long int), *len);
+	if (header.version_maj != KSSL_VERSION_MAJ || header.id != state->req_id) {
+		rc = ssl_private_key_failure;
+		goto cleanup;
+	}
 
-	*out_len = *len;
-	rc = ssl_private_key_success;
+	if (!kssl_parse_message_payload(state->buffer + KSSL_HEADER_SIZE, header.length, &operation)) {
+		rc = ssl_private_key_failure;
+		goto cleanup;
+	}
+
+	switch (operation.opcode) {
+		case KSSL_OP_RESPONSE:
+			memcpy(out, operation.payload, operation.payload_len);
+			*out_len = operation.payload_len;
+
+			rc = ssl_private_key_success;
+			break;
+		case KSSL_OP_ERROR:
+			rc = ssl_private_key_failure;
+			break;
+		case KSSL_OP_RSA_DECRYPT:
+		case KSSL_OP_RSA_DECRYPT_RAW:
+		case KSSL_OP_RSA_SIGN_MD5SHA1:
+		case KSSL_OP_RSA_SIGN_SHA1:
+		case KSSL_OP_RSA_SIGN_SHA224:
+		case KSSL_OP_RSA_SIGN_SHA256:
+		case KSSL_OP_RSA_SIGN_SHA384:
+		case KSSL_OP_RSA_SIGN_SHA512:
+		case KSSL_OP_ECDSA_SIGN_MD5SHA1:
+		case KSSL_OP_ECDSA_SIGN_SHA1:
+		case KSSL_OP_ECDSA_SIGN_SHA224:
+		case KSSL_OP_ECDSA_SIGN_SHA256:
+		case KSSL_OP_ECDSA_SIGN_SHA384:
+		case KSSL_OP_ECDSA_SIGN_SHA512:
+		case KSSL_OP_PING:
+			// unexpected opcode
+			rc = ssl_private_key_failure;
+			break;
+		case KSSL_OP_PONG:
+		case KSSL_OP_ACTIVATE:
+			rc = ssl_private_key_failure;
+			break;
+		default: // unkown opcode
+			rc = ssl_private_key_failure;
+			break;
+	}
 cleanup:
 	if (state) {
 		if (state->c) {
@@ -461,27 +524,27 @@ static size_t key_max_signature_len(SSL *ssl)
 
 static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const EVP_MD *md, const uint8_t *in, size_t in_len)
 {
-	operation_et operation;
+	kssl_opcode_et opcode;
 	RADON_CTX *ctx = NULL;
 
 	switch (EVP_MD_type(md)) {
 		case NID_sha1:
-			operation = OP_RSA_SIGN_SHA1;
+			opcode = KSSL_OP_RSA_SIGN_SHA1;
 			break;
 		case NID_sha224:
-			operation = OP_RSA_SIGN_SHA224;
+			opcode = KSSL_OP_RSA_SIGN_SHA224;
 			break;
 		case NID_sha256:
-			operation = OP_RSA_SIGN_SHA256;
+			opcode = KSSL_OP_RSA_SIGN_SHA256;
 			break;
 		case NID_sha384:
-			operation = OP_RSA_SIGN_SHA384;
+			opcode = KSSL_OP_RSA_SIGN_SHA384;
 			break;
 		case NID_sha512:
-			operation = OP_RSA_SIGN_SHA512;
+			opcode = KSSL_OP_RSA_SIGN_SHA512;
 			break;
 		case NID_md5_sha1:
-			operation = OP_RSA_SIGN_MD5SHA1;
+			opcode = KSSL_OP_RSA_SIGN_MD5SHA1;
 			break;
 		default:
 			return ssl_private_key_failure;
@@ -496,15 +559,15 @@ static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *ou
 	}
 
 	if (ctx->key.type == EVP_PKEY_EC) {
-		operation |= OP_ECDSA_MASK;
+		opcode |= KSSL_OP_ECDSA_MASK;
 	}
 
-	return start_operation(operation, ssl, out, out_len, max_out, in, in_len);
+	return start_operation(opcode, ssl, out, out_len, max_out, in, in_len);
 }
 
 static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
-	return start_operation(OP_RSA_DECRYPT_RAW, ssl, out, out_len, max_out, in, in_len);
+	return start_operation(KSSL_OP_RSA_DECRYPT_RAW, ssl, out, out_len, max_out, in, in_len);
 }
 
 int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len, char **err)
