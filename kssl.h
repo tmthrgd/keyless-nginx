@@ -35,7 +35,7 @@ typedef enum {
 
 // Number of bytes to pad responses to
 
-#define KSSL_PAD_TO 0
+#define KSSL_PAD_TO 1024
 
 // This structure stores the value of a given tag
 typedef struct {

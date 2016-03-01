@@ -209,9 +209,7 @@ int kssl_flatten_operation(kssl_header_st *header,
 	size_t local_req_len;
 	unsigned char *local_req = out_operation;
 	size_t offset = 0;
-#if KSSL_PAD_TO != 0
 	int padding_size = 0;
-#endif /* KSSL_PAD_TO != 0 */
 
 	if (!header || !operation || !out_operation || !length) {
 		return 0;
@@ -248,7 +246,6 @@ int kssl_flatten_operation(kssl_header_st *header,
 		local_req_len += KSSL_ITEM_HEADER_SIZE + operation->server_ip_len;
 	}
 
-#if KSSL_PAD_TO != 0
 	// The operation will always be padded to KSSL_PAD_TO +
 	// KSSL_ITEM_HEADER_SIZE bytes
 
@@ -257,7 +254,6 @@ int kssl_flatten_operation(kssl_header_st *header,
 	}
 
 	local_req_len += KSSL_ITEM_HEADER_SIZE + padding_size;
-#endif /* KSSL_PAD_TO != 0 */
 
 	if (local_req_len > *length) {
 		return 0;
@@ -319,11 +315,9 @@ int kssl_flatten_operation(kssl_header_st *header,
 		}
 	}
 
-#if KSSL_PAD_TO != 0
 	if (!kssl_add_padding(padding_size, local_req, &offset)) {
 		return 0;
 	}
-#endif /* KSSL_PAD_TO != 0 */
 
 	*length = local_req_len;
 
