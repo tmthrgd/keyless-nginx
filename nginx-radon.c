@@ -2,6 +2,11 @@
 
 #if NGX_HTTP_SSL
 
+#include <nginx.h>
+#include <ngx_core.h>
+#include <ngx_http.h>
+#include <ngx_event.h>
+
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -12,11 +17,6 @@
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
-
-#include <nginx.h>
-#include <ngx_core.h>
-#include <ngx_http.h>
-#include <ngx_event.h>
 
 #define STATE_BUFFER_SIZE 2*1024
 
