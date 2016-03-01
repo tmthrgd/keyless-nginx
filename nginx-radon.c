@@ -15,7 +15,6 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
-#include <openssl/bn.h>
 #include <openssl/crypto.h>
 #include <openssl/digest.h>
 #include <openssl/rand.h>
