@@ -383,11 +383,11 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	ngx_connection_t *c;
 	state_st *state = NULL;
 	unsigned long long int *len;
-	enum ssl_private_key_result_t ret;
+	enum ssl_private_key_result_t rc;
 
 	state = SSL_get_ex_data(ssl, g_ssl_exdata_state_index);
 	if (!state) {
-		ret = ssl_private_key_failure;
+		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
 
@@ -399,14 +399,14 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	}
 
 	if (*len == 0 || *len > max_out) {
-		ret = ssl_private_key_failure;
+		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
 
 	memcpy((char *)out, state->buffer + sizeof(unsigned long long int), *len);
 
 	*out_len = *len;
-	ret = ssl_private_key_success;
+	rc = ssl_private_key_success;
 cleanup:
 	if (state) {
 		if (state->c) {
@@ -419,7 +419,7 @@ cleanup:
 		ngx_pfree(c->pool, state);
 	}
 
-	return ret;
+	return rc;
 }
 
 static int key_type(SSL *ssl)
