@@ -129,13 +129,8 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 	ctx->key.type = EVP_PKEY_id(public_key);
 	ctx->key.sig_len = EVP_PKEY_size(public_key);
 
-	ctx->address = ngx_palloc(pool, address_len);
-	if (!ctx->address) {
-		goto error;
-	}
-
+	ctx->address = address;
 	ctx->address_len = address_len;
-	memcpy((char *)ctx->address, (char *)address, address_len);
 
 	if (cert->cert_info == NULL
 		|| cert->cert_info->key == NULL
@@ -161,10 +156,6 @@ error:
 	}
 
 	if (ctx != NULL) {
-		if (ctx->address != NULL) {
-			ngx_pfree(pool, ctx->address);
-		}
-
 		ngx_pfree(pool, ctx);
 	}
 
@@ -211,10 +202,6 @@ int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx)
 
 void radon_free(ngx_pool_t *pool, RADON_CTX *ctx)
 {
-	if (ctx->address != NULL) {
-		ngx_pfree(pool, ctx->address);
-	}
-
 	ngx_pfree(pool, ctx);
 }
 
