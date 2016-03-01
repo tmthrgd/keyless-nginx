@@ -13,7 +13,7 @@ int ngx_http_viper_lua_ffi_ssl_client_has_ecdsa(ngx_http_request_t *r, char **er
 	int i;
 #endif
 
-	if (r->connection == NULL || r->connection->ssl == NULL) {
+	if (!r->connection || !r->connection->ssl) {
 		*err = "bad request";
 		return NGX_ERROR;
 	}
@@ -21,12 +21,12 @@ int ngx_http_viper_lua_ffi_ssl_client_has_ecdsa(ngx_http_request_t *r, char **er
 	ssl_conn = r->connection->ssl->connection;
 
 #ifdef OPENSSL_IS_BORINGSSL
-	if (ssl_conn == NULL) {
+	if (!ssl_conn) {
 		*err = "bad ssl conn";
 		return NGX_ERROR;
 	}
 
-	if (ssl_conn->cipher_list_by_id == NULL) {
+	if (!ssl_conn->cipher_list_by_id) {
 		*err = "bad cipher list";
 		return NGX_ERROR;
 	}
@@ -39,12 +39,12 @@ int ngx_http_viper_lua_ffi_ssl_client_has_ecdsa(ngx_http_request_t *r, char **er
 #else
 #	define SSL_aECDSA 0x00000040L // taken from openssl-1.0.2f/ssl/ssl_locl.h
 
-	if (ssl_conn == NULL || ssl_conn->session == NULL) {
+	if (!ssl_conn || !ssl_conn->session) {
 		*err = "bad ssl conn";
 		return NGX_ERROR;
 	}
 
-	if (ssl_conn->session->ciphers == NULL) {
+	if (!ssl_conn->session->ciphers) {
 		*err = "bad cipher list";
 		return NGX_ERROR;
 	}

@@ -132,11 +132,11 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 	ctx->address = address;
 	ctx->address_len = address_len;
 
-	if (cert->cert_info == NULL
-		|| cert->cert_info->key == NULL
-		|| cert->cert_info->key->public_key == NULL
-		|| cert->cert_info->key->public_key->length == 0
-		|| SHA1(cert->cert_info->key->public_key->data, cert->cert_info->key->public_key->length, ctx->ski) == NULL) {
+	if (!cert->cert_info
+		|| !cert->cert_info->key
+		|| !cert->cert_info->key->public_key
+		|| !cert->cert_info->key->public_key->length
+		|| !SHA1(cert->cert_info->key->public_key->data, cert->cert_info->key->public_key->length, ctx->ski)) {
 		goto error;
 	}
 
@@ -151,11 +151,11 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 	return ctx;
 
 error:
-	if (public_key != NULL) {
+	if (public_key) {
 		EVP_PKEY_free(public_key);
 	}
 
-	if (ctx != NULL) {
+	if (ctx) {
 		ngx_pfree(pool, ctx);
 	}
 
@@ -278,7 +278,7 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	}
 
 	c = ngx_get_connection(sock, ngx_conn->log);
-	if (c == NULL) {
+	if (!c) {
 		goto error;
 	}
 	state->c = c;
@@ -364,12 +364,12 @@ static enum ssl_private_key_result_t start_operation(operation_et operation, SSL
 	return ssl_private_key_retry;
 
 error:
-	if (state != NULL) {
+	if (state) {
 		OPENSSL_cleanse(state, sizeof(state_st));
 		ngx_pfree(ngx_conn->pool, state);
 	}
 
-	if (c != NULL) {
+	if (c) {
 		ngx_close_connection(c);
 	} else if (sock != -1) {
 		close(sock);
@@ -408,8 +408,8 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	*out_len = *len;
 	ret = ssl_private_key_success;
 cleanup:
-	if (state != NULL) {
-		if (state->c != NULL) {
+	if (state) {
+		if (state->c) {
 			ngx_close_connection(state->c);
 		}
 
@@ -507,19 +507,19 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 	X509 *x509;
 	RADON_CTX *ctx;
 
-	if (r->connection == NULL || r->connection->ssl == NULL) {
+	if (!r->connection || !r->connection->ssl) {
 		*err = "bad request";
 		return NGX_ERROR;
 	}
 
 	ssl_conn = r->connection->ssl->connection;
-	if (ssl_conn == NULL) {
+	if (!ssl_conn) {
 		*err = "bad ssl conn";
 		return NGX_ERROR;
 	}
 
 	x509 = SSL_get_certificate(ssl_conn);
-	if (x509 == NULL) {
+	if (!x509) {
 		*err = "SSL_get_certificate failed";
 		return NGX_ERROR;
 	}
@@ -527,7 +527,7 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 	c = ngx_ssl_get_connection(ssl_conn);
 
 	ctx = radon_parse_and_create(c->pool, x509, addr, addr_len);
-	if (ctx == NULL) {
+	if (!ctx) {
 		*err = "radon_create failed";
 		return NGX_ERROR;
 	}
