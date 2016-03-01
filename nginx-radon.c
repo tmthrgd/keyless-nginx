@@ -393,17 +393,14 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 
 	len = (unsigned long long int *)state->buffer;
 
-	if (state->buffer_pos < sizeof(unsigned long long int)) {
+	if (state->buffer_pos < sizeof(unsigned long long int)
+		|| state->buffer_pos < sizeof(unsigned long long int) + *len) {
 		return ssl_private_key_retry;
 	}
 
 	if (*len == 0 || *len > max_out) {
 		ret = ssl_private_key_failure;
 		goto cleanup;
-	}
-
-	if (state->buffer_pos - sizeof(unsigned long long int) < *len) {
-		return ssl_private_key_retry;
 	}
 
 	memcpy((char *)out, state->buffer + sizeof(unsigned long long int), *len);
