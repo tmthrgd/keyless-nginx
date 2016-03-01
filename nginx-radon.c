@@ -135,8 +135,11 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 	if (!cert->cert_info
 		|| !cert->cert_info->key
 		|| !cert->cert_info->key->public_key
-		|| !cert->cert_info->key->public_key->length
-		|| !SHA1(cert->cert_info->key->public_key->data, cert->cert_info->key->public_key->length, ctx->ski)) {
+		|| !cert->cert_info->key->public_key->length) {
+		goto error;
+	}
+
+	if (!SHA1(cert->cert_info->key->public_key->data, cert->cert_info->key->public_key->length, ctx->ski)) {
 		goto error;
 	}
 
@@ -173,7 +176,11 @@ RADON_CTX *radon_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr
 	url.default_port = (in_port_t)RADON_DEFAULT_PORT;
 	url.no_resolve = 1;
 
-	if (ngx_parse_url(pool, &url) != NGX_OK || !url.addrs || !url.addrs[0].sockaddr) {
+	if (ngx_parse_url(pool, &url) != NGX_OK) {
+		return NULL;
+	}
+
+	if (!url.addrs || !url.addrs[0].sockaddr) {
 		return NULL;
 	}
 
