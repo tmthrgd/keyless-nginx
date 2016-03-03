@@ -93,3 +93,5 @@ typedef enum {
 } kssl_error_code_et;
 
 #endif /* INCLUDED_KSSL */
+
+// -*- mode: c;-*-
