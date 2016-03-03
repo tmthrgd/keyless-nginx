@@ -41,6 +41,7 @@ typedef struct radon_ctx_st {
 	struct sockaddr *address;
 	size_t address_len;
 	unsigned char ski[KSSL_SKI_SIZE];
+	unsigned char digest[KSSL_DIGEST_SIZE];
 } RADON_CTX;
 
 typedef struct {
@@ -68,6 +69,8 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 {
 	EVP_PKEY *public_key = NULL;
 	RADON_CTX *ctx = NULL;
+	char *hex = NULL;
+	size_t i = 0;
 
 	if (g_ssl_exdata_ctx_index == -1) {
 		g_ssl_exdata_ctx_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
@@ -119,6 +122,26 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 
 	switch (ctx->key.type) {
 		case EVP_PKEY_RSA:
+			if (!cert->cert_info->key->pkey
+				|| !cert->cert_info->key->pkey->pkey.rsa
+				|| !cert->cert_info->key->pkey->pkey.rsa->n) {
+				goto error;
+			}
+
+			hex = BN_bn2hex(cert->cert_info->key->pkey->pkey.rsa->n);
+			if (!hex) {
+				goto error;
+			}
+
+			for (i = 0; *(hex + i); i++) {
+				*(hex + i) = ngx_toupper(*(hex + i));
+	    		}
+
+			if (!SHA256((const uint8_t *)hex, ngx_strlen(hex), ctx->digest)) {
+				goto error;
+			}
+
+			break;
 		case EVP_PKEY_EC:
 			break;
 		default:
@@ -128,6 +151,10 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 	return ctx;
 
 error:
+	if (hex) {
+		OPENSSL_free(hex);
+	}
+
 	if (public_key) {
 		EVP_PKEY_free(public_key);
 	}
@@ -319,6 +346,11 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 
 	operation.is_ski_set = 1;
 	operation.ski = ctx->ski;
+
+	if (ctx->digest) {
+		operation.is_digest_set = 1;
+		operation.digest = ctx->digest;
+	}
 
 	operation.sni = (const unsigned char *)SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 	if (operation.sni) {
