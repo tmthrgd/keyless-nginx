@@ -347,7 +347,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	operation.is_ski_set = 1;
 	operation.ski = ctx->ski;
 
-	if (ctx->digest) {
+	if (ctx->key.type == EVP_PKEY_RSA) {
 		operation.is_digest_set = 1;
 		operation.digest = ctx->digest;
 	}
