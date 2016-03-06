@@ -1,10 +1,12 @@
-#include <nginx-radon.h>
+#include <ngx_keyless_module.h>
+
+#include <nginx.h>
+#include <ngx_config.h>
+#include <ngx_core.h>
+#include <ngx_http.h>
 
 #if NGX_HTTP_SSL
 
-#include <nginx.h>
-#include <ngx_core.h>
-#include <ngx_http.h>
 #include <ngx_event.h>
 
 #include <kssl.h>
@@ -33,7 +35,7 @@ static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *ou
 static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
 #define key_decrypt_complete operation_complete
 
-typedef struct radon_ctx_st {
+typedef struct keyless_ctx_st {
 	struct {
 		int type;
 		size_t sig_len;
@@ -42,7 +44,7 @@ typedef struct radon_ctx_st {
 	size_t address_len;
 	unsigned char ski[KSSL_SKI_SIZE];
 	unsigned char digest[KSSL_DIGEST_SIZE];
-} RADON_CTX;
+} KEYLESS_CTX;
 
 typedef struct {
 	unsigned int req_id;
@@ -65,10 +67,10 @@ const SSL_PRIVATE_KEY_METHOD key_method = {
 	key_decrypt_complete,
 };
 
-RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, size_t address_len)
+KEYLESS_CTX *keyless_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, size_t address_len)
 {
 	EVP_PKEY *public_key = NULL;
-	RADON_CTX *ctx = NULL;
+	KEYLESS_CTX *ctx = NULL;
 	char *hex = NULL;
 	size_t i = 0;
 
@@ -98,7 +100,7 @@ RADON_CTX *radon_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, 
 		goto error;
 	}
 
-	ctx = ngx_pcalloc(pool, sizeof(RADON_CTX));
+	ctx = ngx_pcalloc(pool, sizeof(KEYLESS_CTX));
 	if (!ctx) {
 		goto error;
 	}
@@ -166,7 +168,7 @@ error:
 	return NULL;
 }
 
-RADON_CTX *radon_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len)
+KEYLESS_CTX *keyless_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len)
 {
 	ngx_url_t url;
 
@@ -174,7 +176,7 @@ RADON_CTX *radon_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr
 
 	url.url.len = addr_len;
 	url.url.data = (unsigned char *)addr;
-	url.default_port = (in_port_t)RADON_DEFAULT_PORT;
+	url.default_port = (in_port_t)KEYLESS_DEFAULT_PORT;
 	url.no_resolve = 1;
 
 	if (ngx_parse_url(pool, &url) != NGX_OK) {
@@ -185,10 +187,10 @@ RADON_CTX *radon_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr
 		return NULL;
 	}
 
-	return radon_create(pool, cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
+	return keyless_create(pool, cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
 }
 
-int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx)
+int keyless_attach_ssl(SSL *ssl, KEYLESS_CTX *ctx)
 {
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_ctx_index, ctx)) {
 		return 0;
@@ -198,7 +200,7 @@ int radon_attach_ssl(SSL *ssl, RADON_CTX *ctx)
 	return 1;
 }
 
-int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx)
+int keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, KEYLESS_CTX *ctx)
 {
 	if (!SSL_CTX_set_ex_data(ssl_ctx, g_ssl_ctx_exdata_ctx_index, ctx)) {
 		return 0;
@@ -208,7 +210,7 @@ int radon_attach_ssl_ctx(SSL_CTX *ssl_ctx, RADON_CTX *ctx)
 	return 1;
 }
 
-void radon_free(ngx_pool_t *pool, RADON_CTX *ctx)
+void keyless_free(ngx_pool_t *pool, KEYLESS_CTX *ctx)
 {
 	ngx_pfree(pool, ctx);
 }
@@ -246,7 +248,7 @@ static void socket_udp_handler(ngx_event_t *ev)
 static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
 	int sock = -1;
-	RADON_CTX *ctx = NULL;
+	KEYLESS_CTX *ctx = NULL;
 	state_st *state = NULL;
 	size_t i = 0;
 	int wrote = -1;
@@ -525,7 +527,7 @@ cleanup:
 
 static int key_type(SSL *ssl)
 {
-	RADON_CTX *ctx = NULL;
+	KEYLESS_CTX *ctx = NULL;
 
 	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
 	if (!ctx) {
@@ -540,7 +542,7 @@ static int key_type(SSL *ssl)
 
 static size_t key_max_signature_len(SSL *ssl)
 {
-	RADON_CTX *ctx = NULL;
+	KEYLESS_CTX *ctx = NULL;
 
 	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
 	if (!ctx) {
@@ -556,7 +558,7 @@ static size_t key_max_signature_len(SSL *ssl)
 static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const EVP_MD *md, const uint8_t *in, size_t in_len)
 {
 	kssl_opcode_et opcode;
-	RADON_CTX *ctx = NULL;
+	KEYLESS_CTX *ctx = NULL;
 
 	switch (EVP_MD_type(md)) {
 		case NID_sha1:
@@ -601,12 +603,12 @@ static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t 
 	return start_operation(KSSL_OP_RSA_DECRYPT_RAW, ssl, out, out_len, max_out, in, in_len);
 }
 
-int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len, char **err)
+int ngx_http_keyless_ffi_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len, char **err)
 {
 	ngx_ssl_conn_t *ssl_conn;
 	ngx_connection_t *c;
 	X509 *x509;
-	RADON_CTX *ctx;
+	KEYLESS_CTX *ctx;
 
 	if (!r->connection || !r->connection->ssl) {
 		*err = "bad request";
@@ -627,16 +629,16 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 
 	c = ngx_ssl_get_connection(ssl_conn);
 
-	ctx = radon_parse_and_create(c->pool, x509, addr, addr_len);
+	ctx = keyless_parse_and_create(c->pool, x509, addr, addr_len);
 	if (!ctx) {
-		*err = "radon_create failed";
+		*err = "keyless_parse_and_create failed";
 		return NGX_ERROR;
 	}
 
-	if (!radon_attach_ssl(ssl_conn, ctx)) {
-		radon_free(c->pool, ctx);
+	if (!keyless_attach_ssl(ssl_conn, ctx)) {
+		keyless_free(c->pool, ctx);
 
-		*err = "radon_attach failed";
+		*err = "keyless_attach_ssl failed";
 		return NGX_ERROR;
 	}
 
@@ -644,3 +646,32 @@ int ngx_http_viper_lua_ffi_radon_set_private_key(ngx_http_request_t *r, const ch
 }
 
 #endif /* NGX_HTTP_SSL */
+
+ngx_http_module_t ngx_keyless_module_ctx = {
+	NULL, /* preconfiguration */
+	NULL, /* postconfiguration */
+
+	NULL, /* create main configuration */
+	NULL, /* init main configuration */
+
+	NULL, /* create server configuration */
+	NULL, /* merge server configuration */
+
+	NULL, /* create location configuration */
+	NULL  /* merge location configuration */
+};
+
+ngx_module_t ngx_keyless_module = {
+	NGX_MODULE_V1,
+	&ngx_keyless_module_ctx, /* module context */
+	NULL,                       /* module directives */
+	NGX_CORE_MODULE,            /* module type */
+	NULL,                       /* init master */
+	NULL,                       /* init module */
+	NULL,                       /* init process */
+	NULL,                       /* init thread */
+	NULL,                       /* exit thread */
+	NULL,                       /* exit process */
+	NULL,                       /* exit master */
+	NGX_MODULE_V1_PADDING
+};

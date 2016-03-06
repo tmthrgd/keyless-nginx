@@ -1,0 +1,65 @@
+diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
+--- a/src/event/ngx_event_openssl.c	2015-12-10 01:17:21.000000000 +1030
++++ b/src/event/ngx_event_openssl.c	2016-02-22 00:30:00.000000000 +1030
+@@ -13,6 +13,9 @@
+ #define NGX_SSL_PASSWORD_BUFFER_SIZE  4096
+ 
+ 
++#include <ngx_keyless_module.h>
++
++
+ typedef struct {
+     ngx_uint_t  engine;   /* unsigned  engine:1; */
+ } ngx_openssl_conf_t;
+@@ -391,6 +394,35 @@ ngx_ssl_certificate(ngx_conf_t *cf, ngx_ssl_t
+ 
+     BIO_free(bio);
+ 
++    if (ngx_strncmp(key->data, "keyless:", sizeof("keyless:") - 1) == 0) {
++
++        u_char    *addr;
++        size_t    addr_len;
++        KEYLESS_CTX *ctx;
++
++        x509 = SSL_CTX_get_ex_data(ssl->ctx, ngx_ssl_certificate_index);
++
++        addr = key->data + sizeof("keyless:") - 1;
++        addr_len = key->len - sizeof("keyless:") + 1;
++
++        ctx  = keyless_parse_and_create(cf->pool, x509, (const char *)addr, addr_len);
++
++        if (ctx == NULL) {
++            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
++                          "keyless_parse_and_create(\"%s\") failed", addr);
++            return NGX_ERROR;
++        }
++
++        if (keyless_attach_ssl_ctx(ssl->ctx, ctx) == 0) {
++            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
++                          "keyless_attach_ssl_ctx(\"%s\") failed", addr);
++            keyless_free(cf->pool, ctx);
++            return NGX_ERROR;
++        }
++
++        return NGX_OK;
++    }
++
+     if (ngx_strncmp(key->data, "engine:", sizeof("engine:") - 1) == 0) {
+ 
+ #ifndef OPENSSL_NO_ENGINE
+@@ -1215,8 +1244,14 @@ ngx_ssl_handshake(ngx_connection_t *c)
+         return NGX_AGAIN;
+     }
+ 
+-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
++#if OPENSSL_VERSION_NUMBER >= 0x10002000L || defined(SSL_ERROR_WANT_PRIVATE_KEY_OPERATION)
++#if OPENSSL_VERSION_NUMBER >= 0x10002000L && defined(SSL_ERROR_WANT_PRIVATE_KEY_OPERATION)
++    if (sslerr == SSL_ERROR_WANT_X509_LOOKUP || sslerr == SSL_ERROR_WANT_PRIVATE_KEY_OPERATION) {
++#elif defined(SSL_ERROR_WANT_PRIVATE_KEY_OPERATION)
++    if (sslerr == SSL_ERROR_WANT_PRIVATE_KEY_OPERATION) {
++#else
+     if (sslerr == SSL_ERROR_WANT_X509_LOOKUP) {
++#endif
+         c->read->handler = ngx_ssl_handshake_handler;
+         c->write->handler = ngx_ssl_handshake_handler;
+ 
