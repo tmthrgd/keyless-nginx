@@ -143,6 +143,7 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *addre
 				goto error;
 			}
 
+			OPENSSL_free(hex); hex = NULL;
 			break;
 		case EVP_PKEY_EC:
 			break;
