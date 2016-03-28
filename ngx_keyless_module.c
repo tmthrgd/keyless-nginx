@@ -40,16 +40,21 @@ typedef struct keyless_ctx_st {
 		int type;
 		size_t sig_len;
 	} key;
+
 	struct sockaddr *address;
 	size_t address_len;
+
 	unsigned char ski[KSSL_SKI_SIZE];
 	unsigned char digest[KSSL_DIGEST_SIZE];
 } KEYLESS_CTX;
 
 typedef struct {
 	unsigned int req_id;
+
 	ngx_connection_t *c;
+
 	ngx_connection_t *ngx_conn;
+
 	size_t buffer_pos;
 	unsigned char buffer[STATE_BUFFER_SIZE];
 } state_st;
@@ -135,8 +140,8 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *addre
 				goto error;
 			}
 
-			for (i = 0; *(hex + i); i++) {
-				*(hex + i) = ngx_toupper(*(hex + i));
+			for (i = 0; hex[i]; i++) {
+				hex[i] = ngx_toupper(hex[i]);
 	    		}
 
 			if (!SHA256((const uint8_t *)hex, ngx_strlen(hex), ctx->digest)) {
@@ -215,6 +220,8 @@ void keyless_free(ngx_pool_t *pool, KEYLESS_CTX *ctx)
 {
 	ngx_pfree(pool, ctx);
 }
+
+static void dummy_socket_handler(ngx_event_t *ev) { }
 
 static void socket_udp_handler(ngx_event_t *ev)
 {
@@ -302,8 +309,10 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	rev = c->read;
 	wev = c->write;
 
-	rev->log = ngx_conn->log;
-	wev->log = ngx_conn->log;
+	c->log = ngx_conn->log;
+	rev->log = c->log;
+	wev->log = c->log;
+	c->pool = ngx_conn->pool;
 
 	c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
 
@@ -332,6 +341,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	}
 
 	rev->handler = socket_udp_handler;
+	wev->handler = dummy_socket_handler;
 
 	header.version_maj = KSSL_VERSION_MAJ;
 	header.version_min = KSSL_VERSION_MIN;
