@@ -18,6 +18,9 @@ typedef struct keyless_ctx_st KEYLESS_CTX;
 KEYLESS_CTX *keyless_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *address, size_t address_len);
 KEYLESS_CTX *keyless_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *addr, size_t addr_len);
 
+KEYLESS_CTX *ssl_get_keyless_ctx(SSL *ssl);
+KEYLESS_CTX *ssl_ctx_get_keyless_ctx(SSL_CTX *ssl_ctx);
+
 int keyless_attach_ssl(SSL *ssl, KEYLESS_CTX *ctx);
 int keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, KEYLESS_CTX *ctx);
 

@@ -196,6 +196,23 @@ KEYLESS_CTX *keyless_parse_and_create(ngx_pool_t *pool, X509 *cert, const char *
 	return keyless_create(pool, cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
 }
 
+KEYLESS_CTX *ssl_get_keyless_ctx(SSL *ssl)
+{
+	KEYLESS_CTX *ctx;
+
+	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
+	if (ctx) {
+		return ctx;
+	}
+
+	return SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
+}
+
+KEYLESS_CTX *ssl_ctx_get_keyless_ctx(SSL_CTX *ssl_ctx)
+{
+	return SSL_CTX_get_ex_data(ssl_ctx, g_ssl_ctx_exdata_ctx_index);
+}
+
 int keyless_attach_ssl(SSL *ssl, KEYLESS_CTX *ctx)
 {
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_ctx_index, ctx)) {
@@ -275,12 +292,9 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 		goto error;
 	}
 
-	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
+	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
-		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
-		if (!ctx) {
-			goto error;
-		}
+		goto error;
 	}
 
 	ngx_conn = ngx_ssl_get_connection(ssl);
@@ -540,12 +554,9 @@ static int key_type(SSL *ssl)
 {
 	KEYLESS_CTX *ctx = NULL;
 
-	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
+	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
-		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
-		if (!ctx) {
-			return 0;
-		}
+		return 0;
 	}
 
 	return ctx->key.type;
@@ -555,12 +566,9 @@ static size_t key_max_signature_len(SSL *ssl)
 {
 	KEYLESS_CTX *ctx = NULL;
 
-	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
+	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
-		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
-		if (!ctx) {
-			return 0;
-		}
+		return 0;
 	}
 
 	return ctx->key.sig_len;
