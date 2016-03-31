@@ -156,6 +156,8 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, X509 *cert, struct sockaddr *addre
 			goto error;
 	}
 
+	EVP_PKEY_free(public_key);
+
 	return ctx;
 
 error:
