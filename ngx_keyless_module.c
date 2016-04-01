@@ -503,6 +503,11 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 
 	switch (operation.opcode) {
 		case KSSL_OP_RESPONSE:
+			if (operation.payload_len > max_out) {
+				rc = ssl_private_key_failure;
+				break;
+			}
+
 			memcpy(out, operation.payload, operation.payload_len);
 			*out_len = operation.payload_len;
 
