@@ -275,9 +275,9 @@ static void socket_udp_handler(ngx_event_t *ev)
 static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
 	int sock = -1;
-	KEYLESS_CTX *ctx = NULL;
+	KEYLESS_CTX *ctx;
 	state_st *state = NULL;
-	size_t i = 0;
+	size_t i;
 	int wrote = -1;
 	ngx_int_t event;
 	ngx_event_t *rev, *wev;
@@ -584,7 +584,7 @@ static size_t key_max_signature_len(SSL *ssl)
 static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *out_len, size_t max_out, const EVP_MD *md, const uint8_t *in, size_t in_len)
 {
 	kssl_opcode_et opcode;
-	KEYLESS_CTX *ctx = NULL;
+	KEYLESS_CTX *ctx;
 
 	switch (EVP_MD_type(md)) {
 		case NID_sha1:
@@ -609,12 +609,9 @@ static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *ou
 			return ssl_private_key_failure;
 	}
 
-	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
+	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
-		ctx = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
-		if (!ctx) {
-			return ssl_private_key_failure;
-		}
+		return ssl_private_key_failure;
 	}
 
 	if (ctx->key.type == EVP_PKEY_EC) {
