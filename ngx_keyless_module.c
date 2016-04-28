@@ -24,7 +24,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-#define STATE_BUFFER_SIZE 2*1024
+#define OP_BUFFER_SIZE 2*1024
 
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len,
 		size_t max_out);
@@ -54,7 +54,8 @@ typedef struct keyless_ctx_st {
 	unsigned char digest[KSSL_DIGEST_SIZE];
 
 	ngx_connection_t *c;
-	ngx_queue_t ops;
+
+	ngx_queue_t recv_ops;
 	ngx_queue_t send_ops;
 
 	ngx_pool_t *pool;
@@ -62,8 +63,6 @@ typedef struct keyless_ctx_st {
 } KEYLESS_CTX;
 
 typedef struct {
-	const KEYLESS_CTX *ctx;
-
 	ngx_event_t *ev;
 
 	unsigned int id;
@@ -71,13 +70,13 @@ typedef struct {
 	ngx_buf_t send;
 	ngx_buf_t recv;
 
-	ngx_queue_t queue;
+	ngx_queue_t recv_queue;
 	ngx_queue_t send_queue;
-} state_st;
+} keyless_op_st;
 
 static int g_ssl_exdata_ctx_index = -1;
 static int g_ssl_ctx_exdata_ctx_index = -1;
-static int g_ssl_exdata_state_index = -1;
+static int g_ssl_exdata_op_index = -1;
 
 const SSL_PRIVATE_KEY_METHOD key_method = {
 	key_type,
@@ -110,9 +109,9 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 		}
 	}
 
-	if (g_ssl_exdata_state_index == -1) {
-		g_ssl_exdata_state_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
-		if (g_ssl_exdata_state_index == -1) {
+	if (g_ssl_exdata_op_index == -1) {
+		g_ssl_exdata_op_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+		if (g_ssl_exdata_op_index == -1) {
 			goto error;
 		}
 	}
@@ -179,7 +178,7 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 
 	EVP_PKEY_free(public_key);
 
-	ngx_queue_init(&ctx->ops);
+	ngx_queue_init(&ctx->recv_ops);
 	ngx_queue_init(&ctx->send_ops);
 
 	return ctx;
@@ -262,11 +261,20 @@ int keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, KEYLESS_CTX *ctx)
 
 void keyless_free(ngx_pool_t *pool, KEYLESS_CTX *ctx)
 {
+	keyless_op_st *op;
+	ngx_queue_t *q;
+
 	if (ctx->c) {
 		ngx_close_connection(ctx->c);
 	}
 
-	// free ctx->ops
+	for (q = ngx_queue_head(&ctx->recv_ops);
+		q != ngx_queue_sentinel(&ctx->recv_ops);
+		q = ngx_queue_next(q)) {
+		op = ngx_queue_data(q, keyless_op_st, recv_queue);
+
+		ngx_pfree(ctx->pool, op);
+	}
 
 	ngx_pfree(pool, ctx);
 }
@@ -275,7 +283,7 @@ static void socket_read_handler(ngx_event_t *rev)
 {
 	ngx_connection_t *c;
 	KEYLESS_CTX *ctx;
-	state_st *op;
+	keyless_op_st *op;
 	ngx_queue_t *q;
 	ngx_buf_t recv;
 	kssl_header_st header;
@@ -284,7 +292,7 @@ static void socket_read_handler(ngx_event_t *rev)
 	c = rev->data;
 	ctx = c->data;
 
-	recv.start = ngx_palloc(c->pool, STATE_BUFFER_SIZE);
+	recv.start = ngx_palloc(c->pool, OP_BUFFER_SIZE);
 	if (!recv.start) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0,
 			"ngx_palloc failed to allocated recv buffer");
@@ -293,10 +301,9 @@ static void socket_read_handler(ngx_event_t *rev)
 
 	recv.pos = recv.start;
 	recv.last = recv.start;
-	recv.end = recv.start + STATE_BUFFER_SIZE;
+	recv.end = recv.start + OP_BUFFER_SIZE;
 
 	size = c->recv(c, recv.last, recv.end - recv.last);
-
 	if (size > 0) {
 		recv.last += size;
 	} else if (size == 0 || size == NGX_AGAIN) {
@@ -321,29 +328,33 @@ static void socket_read_handler(ngx_event_t *rev)
 		return;
 	}
 
-	for (q = ngx_queue_head(&ctx->ops);
-		q != ngx_queue_sentinel(&ctx->ops);
+	for (q = ngx_queue_head(&ctx->recv_ops);
+		q != ngx_queue_sentinel(&ctx->recv_ops);
 		q = ngx_queue_next(q)) {
-		op = ngx_queue_data(q, state_st, queue);
+		op = ngx_queue_data(q, keyless_op_st, recv_queue);
 
 		if (op->id != header.id) {
 			continue;
 		}
 
-		ngx_queue_remove(&op->queue);
+		ngx_queue_remove(&op->recv_queue);
 
 		op->recv = recv;
 
 		ngx_post_event(op->ev, &ngx_posted_events);
-		break;
+		return;
 	}
+
+	ngx_pfree(c->pool, recv.start);
+
+	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id");
 }
 
 static void socket_write_handler(ngx_event_t *wev)
 {
 	ngx_connection_t *c;
 	KEYLESS_CTX *ctx;
-	state_st *op;
+	keyless_op_st *op;
 	ngx_queue_t *q;
 	ssize_t size;
 
@@ -355,7 +366,7 @@ static void socket_write_handler(ngx_event_t *wev)
 	}
 
 	q = ngx_queue_head(&ctx->send_ops);
-	op = ngx_queue_data(q, state_st, send_queue);
+	op = ngx_queue_data(q, keyless_op_st, send_queue);
 
 	size = c->send(c, op->send.pos, op->send.last - op->send.pos);
 	if (size > 0) {
@@ -388,7 +399,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 		uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
 	KEYLESS_CTX *ctx;
-	state_st *state = NULL;
+	keyless_op_st *op = NULL;
 	ngx_int_t event;
 	ngx_event_t *rev, *wev;
 	int sock = -1;
@@ -401,7 +412,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	kssl_operation_st operation;
 	size_t length;
 
-	if (in_len + KSSL_HEADER_SIZE > STATE_BUFFER_SIZE) {
+	if (in_len + KSSL_HEADER_SIZE > OP_BUFFER_SIZE) {
 		goto error;
 	}
 
@@ -472,12 +483,12 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 
 	ngx_conn = ngx_ssl_get_connection(ssl);
 
-	state = ngx_pcalloc(ngx_conn->pool, sizeof(state_st));
-	if (!state) {
+	op = ngx_pcalloc(ctx->pool, sizeof(keyless_op_st));
+	if (!op) {
 		goto error;
 	}
 
-	state->ev = ngx_conn->write;
+	op->ev = ngx_conn->write;
 
 	header.version_maj = KSSL_VERSION_MAJ;
 	header.version_min = KSSL_VERSION_MIN;
@@ -486,7 +497,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 		goto error;
 	}
 
-	state->id = header.id;
+	op->id = header.id;
 
 	kssl_zero_operation(&operation);
 
@@ -553,29 +564,29 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 			break;
 	}
 
-	state->send.start = ngx_palloc(ngx_conn->pool, STATE_BUFFER_SIZE);
-	if (!state->send.start) {
+	op->send.start = ngx_palloc(ctx->pool, OP_BUFFER_SIZE);
+	if (!op->send.start) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0,
 			"ngx_palloc failed to allocated recv buffer");
 		goto error;
 	}
 
-	state->send.pos = state->send.start;
-	state->send.last = state->send.start;
-	state->send.end = state->send.start + STATE_BUFFER_SIZE;
+	op->send.pos = op->send.start;
+	op->send.last = op->send.start;
+	op->send.end = op->send.start + OP_BUFFER_SIZE;
 
-	length = state->send.end - state->send.pos;
-	if (!kssl_flatten_operation(&header, &operation, state->send.pos, &length)) {
+	length = op->send.end - op->send.pos;
+	if (!kssl_flatten_operation(&header, &operation, op->send.pos, &length)) {
 		goto error;
 	}
-	state->send.last = state->send.pos + length;
+	op->send.last = op->send.pos + length;
 
-	if (!SSL_set_ex_data(ssl, g_ssl_exdata_state_index, state)) {
+	if (!SSL_set_ex_data(ssl, g_ssl_exdata_op_index, op)) {
 		goto error;
 	}
 
-	ngx_queue_insert_tail(&ctx->ops, &state->queue);
-	ngx_queue_insert_tail(&ctx->send_ops, &state->send_queue);
+	ngx_queue_insert_tail(&ctx->recv_ops, &op->recv_queue);
+	ngx_queue_insert_tail(&ctx->send_ops, &op->send_queue);
 
 	ctx->c->write->handler(ctx->c->write);
 
@@ -588,13 +599,13 @@ error:
 		close(sock);
 	}
 
-	if (state) {
-		if (state->send.start) {
-			OPENSSL_cleanse(state->send.start, state->send.end - state->send.start);
-			ngx_pfree(ngx_conn->pool, state->send.start);
+	if (op) {
+		if (op->send.start) {
+			OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
+			ngx_pfree(ctx->pool, op->send.start);
 		}
 
-		ngx_pfree(ngx_conn->pool, state);
+		ngx_pfree(ctx->pool, op);
 	}
 
 	return ssl_private_key_failure;
@@ -604,43 +615,50 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 		size_t max_out)
 {
 	ngx_connection_t *c;
-	state_st *state = NULL;
+	KEYLESS_CTX *ctx;
+	keyless_op_st *op = NULL;
 	kssl_header_st header;
 	kssl_operation_st operation;
 	enum ssl_private_key_result_t rc;
 
 	c = ngx_ssl_get_connection(ssl);
 
-	state = SSL_get_ex_data(ssl, g_ssl_exdata_state_index);
-	if (!state) {
+	ctx = ssl_get_keyless_ctx(ssl);
+	if (!ctx) {
 		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
 
-	if (state->recv.last - state->recv.pos < (ssize_t)KSSL_HEADER_SIZE) {
+	op = SSL_get_ex_data(ssl, g_ssl_exdata_op_index);
+	if (!op) {
+		rc = ssl_private_key_failure;
+		goto cleanup;
+	}
+
+	if (op->recv.last - op->recv.pos < (ssize_t)KSSL_HEADER_SIZE) {
 		return ssl_private_key_retry;
 	}
 
-	if (!kssl_parse_header(state->recv.pos, &header)) {
+	if (!kssl_parse_header(op->recv.pos, &header)) {
 		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
 
-	state->recv.pos += KSSL_HEADER_SIZE;
+	op->recv.pos += KSSL_HEADER_SIZE;
 
-	if (header.version_maj != KSSL_VERSION_MAJ || header.id != state->id) {
+	if (header.version_maj != KSSL_VERSION_MAJ || header.id != op->id) {
 		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
 
-	if (!kssl_parse_message_payload(state->recv.pos, header.length, &operation)) {
+	if (!kssl_parse_message_payload(op->recv.pos, header.length, &operation)) {
 		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
 
-	state->recv.pos += header.length;
+	op->recv.pos += header.length;
 
-	if (state->recv.last - state->recv.pos != 0) {
+	if (op->recv.last - op->recv.pos != 0) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "trailing data recieved");
 	}
 
@@ -686,11 +704,11 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 			break;
 	}
 cleanup:
-	if (state) {
-		OPENSSL_cleanse(state->recv.start, state->recv.end - state->recv.start);
+	if (op) {
+		OPENSSL_cleanse(op->recv.start, op->recv.end - op->recv.start);
+		ngx_pfree(ctx->pool, op->recv.start);
 
-		ngx_pfree(c->pool, state->recv.start);
-		ngx_pfree(c->pool, state);
+		ngx_pfree(ctx->pool, op);
 	}
 
 	return rc;
