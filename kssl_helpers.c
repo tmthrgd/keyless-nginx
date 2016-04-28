@@ -443,7 +443,7 @@ int kssl_parse_message_payload(unsigned char *payload,
 }
 
 // opstring: convert a KSSL opcode byte to a string
-const char *kssl_opstring(unsigned char op) {
+const char *kssl_op_string(unsigned char op) {
 	switch (op) {
 		case KSSL_OP_ERROR:
 			return "KSSL_OP_ERROR";
@@ -487,7 +487,7 @@ const char *kssl_opstring(unsigned char op) {
 }
 
 // errstring: convert a KSSL error to a string
-const char *kssl_errstring(unsigned char err) {
+const char *kssl_error_string(unsigned char err) {
 	switch (err) {
 		case KSSL_ERROR_NONE:
 			return "KSSL_ERROR_NONE";

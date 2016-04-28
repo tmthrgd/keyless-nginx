@@ -107,7 +107,7 @@ int kssl_add_padding(
                                // to write from
 
 // Map an opcode to the corresponding string
-const char *kssl_opstring(unsigned char op);
+const char *kssl_op_string(unsigned char op);
 
 // Map an error code to a string
 const char *kssl_error_string(unsigned char e);
