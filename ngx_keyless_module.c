@@ -308,7 +308,7 @@ static void socket_read_handler(ngx_event_t *rev)
 	if (size > 0) {
 		recv.last += size;
 	} else if (size == 0 || size == NGX_AGAIN) {
-		;
+		return;
 	} else {
 		c->error = 1;
 		return;
@@ -647,15 +647,11 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 		return ssl_private_key_retry;
 	}
 
-	if (!kssl_parse_header(op->recv.pos, &header)) {
-		rc = ssl_private_key_failure;
-		goto cleanup;
-	}
-
-	op->recv.pos += KSSL_HEADER_SIZE;
-
+	assert(kssl_parse_header(op->recv.pos, &header));
 	assert(header.version_maj == KSSL_VERSION_MAJ);
 	assert(header.id == op->id);
+
+	op->recv.pos += KSSL_HEADER_SIZE;
 
 	if (!kssl_parse_message_payload(op->recv.pos, header.length, &operation)) {
 		rc = ssl_private_key_failure;
