@@ -12,6 +12,7 @@
 #include <kssl.h>
 #include <kssl_helpers.h>
 
+#include <assert.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -324,7 +325,8 @@ static void socket_read_handler(ngx_event_t *rev)
 	}
 
 	if (header.version_maj != KSSL_VERSION_MAJ) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0,
+			kssl_error_string(KSSL_ERROR_VERSION_MISMATCH));
 		return;
 	}
 
@@ -646,10 +648,8 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 
 	op->recv.pos += KSSL_HEADER_SIZE;
 
-	if (header.version_maj != KSSL_VERSION_MAJ || header.id != op->id) {
-		rc = ssl_private_key_failure;
-		goto cleanup;
-	}
+	assert(header.version_maj == KSSL_VERSION_MAJ);
+	assert(header.id == op->id);
 
 	if (!kssl_parse_message_payload(op->recv.pos, header.length, &operation)) {
 		rc = ssl_private_key_failure;
@@ -665,6 +665,9 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	switch (operation.opcode) {
 		case KSSL_OP_RESPONSE:
 			if (operation.payload_len > max_out) {
+				ngx_log_error(NGX_LOG_ERR, c->log, 0,
+					"payload longer than max_out");
+
 				rc = ssl_private_key_failure;
 				break;
 			}
@@ -675,6 +678,11 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 			rc = ssl_private_key_success;
 			break;
 		case KSSL_OP_ERROR:
+			if (operation.payload_len == 1) {
+				ngx_log_error(NGX_LOG_ERR, c->log, 0, "keyless error: %s",
+					kssl_error_string(operation.payload[0]));
+			}
+
 			rc = ssl_private_key_failure;
 			break;
 		case KSSL_OP_RSA_DECRYPT:
@@ -692,14 +700,17 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 		case KSSL_OP_ECDSA_SIGN_SHA384:
 		case KSSL_OP_ECDSA_SIGN_SHA512:
 		case KSSL_OP_PING:
-			// unexpected opcode
-			rc = ssl_private_key_failure;
-			break;
 		case KSSL_OP_PONG:
 		case KSSL_OP_ACTIVATE:
+			ngx_log_error(NGX_LOG_ERR, c->log, 0,
+				kssl_error_string(KSSL_ERROR_UNEXPECTED_OPCODE));
+
 			rc = ssl_private_key_failure;
 			break;
-		default: // unkown opcode
+		default:
+			ngx_log_error(NGX_LOG_ERR, c->log, 0,
+				kssl_error_string(KSSL_ERROR_BAD_OPCODE));
+
 			rc = ssl_private_key_failure;
 			break;
 	}
