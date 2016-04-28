@@ -349,7 +349,7 @@ static void socket_read_handler(ngx_event_t *rev)
 
 	ngx_pfree(c->pool, recv.start);
 
-	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id");
+	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id: %ud", header.id);
 }
 
 static void socket_write_handler(ngx_event_t *wev)
