@@ -404,7 +404,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	keyless_op_st *op = NULL;
 	ngx_int_t event;
 	ngx_event_t *rev, *wev;
-	int sock = -1;
+	ngx_socket_t s;
 	ngx_connection_t *ngx_conn, *c = NULL;
 	const struct sockaddr_in *sin;
 #if NGX_HAVE_INET6
@@ -424,13 +424,27 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	}
 
 	if (!ctx->c) {
-		sock = socket(ctx->address->sa_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
-		if (sock == -1) {
+		s = socket(ctx->address->sa_family, SOCK_DGRAM, 0);
+		ngx_log_debug1(NGX_LOG_DEBUG_EVENT, ctx->log, 0, "UDP socket %d", s);
+		if (s == (ngx_socket_t)-1) {
+			ngx_log_error(NGX_LOG_ALERT, ctx->log, ngx_socket_errno,
+				ngx_socket_n " failed");
 			goto error;
 		}
 
-		c = ngx_get_connection(sock, ctx->log);
+		c = ngx_get_connection(s, ctx->log);
 		if (!c) {
+			if (ngx_close_socket(s) == -1) {
+				ngx_log_error(NGX_LOG_ALERT, ctx->log, ngx_socket_errno,
+					ngx_close_socket_n "failed");
+			}
+
+			goto error;
+		}
+
+		if (ngx_nonblocking(s) == -1) {
+			ngx_log_error(NGX_LOG_ALERT, ctx->log, ngx_socket_errno,
+				ngx_nonblocking_n " failed");
 			goto error;
 		}
 
@@ -452,35 +466,29 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 
 		c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
 
-		if (connect(sock, ctx->address, ctx->address_len) == -1) {
+		if (connect(s, ctx->address, ctx->address_len) == -1) {
+			ngx_log_error(NGX_LOG_CRIT, ctx->log, ngx_socket_errno,
+				"connect() failed");
 			goto error;
 		}
 
 		/* UDP sockets are always ready to write */
 		wev->ready = 1;
 
-		if (ngx_add_event) {
-			event = (ngx_event_flags & NGX_USE_CLEAR_EVENT) ?
-					/* kqueue, epoll */                 NGX_CLEAR_EVENT:
-					/* select, poll, /dev/poll */       NGX_LEVEL_EVENT;
-					/* eventport event type has no meaning: oneshot only */
+		event = (ngx_event_flags & NGX_USE_CLEAR_EVENT) ?
+				/* kqueue, epoll */                 NGX_CLEAR_EVENT:
+				/* select, poll, /dev/poll */       NGX_LEVEL_EVENT;
+				/* eventport event type has no meaning: oneshot only */
 
-			if (ngx_add_event(rev, NGX_READ_EVENT, event) != NGX_OK) {
-				goto error;
-			}
-		} else {
-			/* rtsig */
-
-			if (ngx_add_conn(c) == NGX_ERROR) {
-				goto error;
-			}
+		if (ngx_add_event(rev, NGX_READ_EVENT, event) != NGX_OK) {
+			goto error;
 		}
 
 		rev->handler = socket_read_handler;
 		wev->handler = socket_write_handler;
 
+		/* don't close the socket on error if we've gotten this far */
 		c = NULL;
-		sock = -1;
 	}
 
 	ngx_conn = ngx_ssl_get_connection(ssl);
@@ -597,8 +605,6 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 error:
 	if (c) {
 		ngx_close_connection(c);
-	} else if (sock != -1) {
-		close(sock);
 	}
 
 	if (op) {
