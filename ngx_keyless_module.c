@@ -463,7 +463,6 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 			goto error;
 		}
 
-		ctx->c = c;
 		c->data = ctx;
 
 		c->recv = ngx_udp_recv;
@@ -501,6 +500,8 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 
 		rev->handler = socket_read_handler;
 		wev->handler = socket_write_handler;
+
+		ctx->c = c;
 
 		/* don't close the socket on error if we've gotten this far */
 		c = NULL;
