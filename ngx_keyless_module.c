@@ -323,26 +323,26 @@ static void socket_read_handler(ngx_event_t *rev)
 	if (size > 0) {
 		recv.last += size;
 	} else if (size == 0 || size == NGX_AGAIN) {
-		return;
+		goto cleanup;
 	} else {
 		c->error = 1;
-		return;
+		goto cleanup;
 	}
 
 	if (recv.last - recv.pos < (ssize_t)KSSL_HEADER_SIZE) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "truncated packet");
-		return;
+		goto cleanup;
 	}
 
 	if (!kssl_parse_header(recv.pos, &header)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "kssl_parse_header failed");
-		return;
+		goto cleanup;
 	}
 
 	if (header.version_maj != KSSL_VERSION_MAJ) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0,
 			kssl_error_string(KSSL_ERROR_VERSION_MISMATCH));
-		return;
+		goto cleanup;
 	}
 
 	for (q = ngx_queue_head(&ctx->recv_ops);
@@ -362,9 +362,10 @@ static void socket_read_handler(ngx_event_t *rev)
 		return;
 	}
 
-	ngx_pfree(c->pool, recv.start);
-
 	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id: %ud", header.id);
+
+cleanup:
+	ngx_pfree(c->pool, recv.start);
 }
 
 static void socket_write_handler(ngx_event_t *wev)
