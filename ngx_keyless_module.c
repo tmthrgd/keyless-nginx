@@ -559,7 +559,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 			break;
 #endif /* NGX_HAVE_INET6 */
 		case AF_INET:
-			sin = (struct sockaddr_in *)ngx_conn->sockaddr;
+			sin = (const struct sockaddr_in *)ngx_conn->sockaddr;
 
 			operation.is_client_ip_set = 1;
 			operation.client_ip_len = 4;
@@ -582,7 +582,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 			break;
 #endif /* NGX_HAVE_INET6 */
 		case AF_INET:
-			sin = (struct sockaddr_in *)ngx_conn->local_sockaddr;
+			sin = (const struct sockaddr_in *)ngx_conn->local_sockaddr;
 
 			operation.is_server_ip_set = 1;
 			operation.server_ip_len = 4;
