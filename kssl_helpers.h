@@ -91,11 +91,11 @@ int kssl_flatten_item(
 	size_t              *offset);     // offset to write item, updated to end
 
 // Serialize a KSSL request
-int kssl_flatten_operation(
-        kssl_header_st     *header,      // header information
-	kssl_operation_st  *request,     // request information, including pointer to payload
-	unsigned char      *request_out, // request bytes, to be allocated by the caller
-	size_t             *length);     // length of output, should initially be the maximum length of request_out
+// Returns the length of the payload, set request_out to NULL to get length.
+size_t kssl_flatten_operation(
+        kssl_header_st     *header,       // header information
+	kssl_operation_st  *request,      // request information, including pointer to payload
+	unsigned char      *request_out); // request bytes, to be allocated by the caller
 
 // add_padding: adds padding bytes to a KSSL message. Assumes that the buffer
 // being written to is calloced.

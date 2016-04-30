@@ -440,10 +440,6 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	kssl_operation_st operation;
 	size_t length;
 
-	if (in_len + KSSL_HEADER_SIZE > OP_BUFFER_SIZE) {
-		goto error;
-	}
-
 	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
 		goto error;
@@ -601,7 +597,12 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 			break;
 	}
 
-	op->send.start = ngx_palloc(ctx->pool, OP_BUFFER_SIZE);
+	length = kssl_flatten_operation(&header, &operation, NULL);
+	if (!length) {
+		goto error;
+	}
+
+	op->send.start = ngx_palloc(ctx->pool, length);
 	if (!op->send.start) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0,
 			"ngx_palloc failed to allocated recv buffer");
@@ -609,14 +610,12 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	}
 
 	op->send.pos = op->send.start;
-	op->send.last = op->send.start;
-	op->send.end = op->send.start + OP_BUFFER_SIZE;
+	op->send.last = op->send.start + length;
+	op->send.end = op->send.start + length;
 
-	length = op->send.end - op->send.pos;
-	if (!kssl_flatten_operation(&header, &operation, op->send.pos, &length)) {
+	if (!kssl_flatten_operation(&header, &operation, op->send.pos)) {
 		goto error;
 	}
-	op->send.last = op->send.pos + length;
 
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_op_index, op)) {
 		goto error;

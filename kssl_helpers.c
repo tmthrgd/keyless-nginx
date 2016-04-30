@@ -202,16 +202,15 @@ int kssl_add_padding(unsigned short size,  // Length of padding
 }
 
 // flatten_operation: serialize a kssl_operation
-int kssl_flatten_operation(kssl_header_st *header,
-                           kssl_operation_st *operation,
-                           unsigned char *out_operation,
-                           size_t *length) {
+size_t kssl_flatten_operation(kssl_header_st *header,
+                              kssl_operation_st *operation,
+                              unsigned char *out_operation) {
 	size_t local_req_len;
 	unsigned char *local_req = out_operation;
 	size_t offset = 0;
 	int padding_size = 0;
 
-	if (!header || !operation || !out_operation || !length) {
+	if (!header || !operation) {
 		return 0;
 	}
 
@@ -255,8 +254,8 @@ int kssl_flatten_operation(kssl_header_st *header,
 
 	local_req_len += KSSL_ITEM_HEADER_SIZE + padding_size;
 
-	if (local_req_len > *length) {
-		return 0;
+	if (!out_operation) {
+		return local_req_len;
 	}
 
 	// The memory is cleared here to ensure that it is all zero. This is
@@ -319,9 +318,7 @@ int kssl_flatten_operation(kssl_header_st *header,
 		return 0;
 	}
 
-	*length = local_req_len;
-
-	return 1;
+	return local_req_len;
 }
 
 // zero_operation: initialize a kssl_operation struct
