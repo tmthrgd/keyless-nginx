@@ -109,7 +109,7 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 	EVP_PKEY *public_key = NULL;
 	KEYLESS_CTX *ctx = NULL;
 	char *hex = NULL;
-	size_t i = 0;
+	size_t i;
 
 	if (g_ssl_exdata_ctx_index == -1) {
 		g_ssl_exdata_ctx_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
