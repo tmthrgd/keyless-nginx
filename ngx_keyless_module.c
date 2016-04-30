@@ -275,7 +275,7 @@ int keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, KEYLESS_CTX *ctx)
 	return 1;
 }
 
-void keyless_free(ngx_pool_t *pool, KEYLESS_CTX *ctx)
+void keyless_free(KEYLESS_CTX *ctx)
 {
 	keyless_op_st *op;
 	ngx_queue_t *q;
@@ -289,10 +289,20 @@ void keyless_free(ngx_pool_t *pool, KEYLESS_CTX *ctx)
 		q = ngx_queue_next(q)) {
 		op = ngx_queue_data(q, keyless_op_st, recv_queue);
 
+		if (op->send.start) {
+			OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
+			ngx_pfree(ctx->pool, op->send.start);
+		}
+
+		if (op->recv.start) {
+			OPENSSL_cleanse(op->recv.start, op->recv.end - op->recv.start);
+			ngx_pfree(ctx->pool, op->recv.start);
+		}
+
 		ngx_pfree(ctx->pool, op);
 	}
 
-	ngx_pfree(pool, ctx);
+	ngx_pfree(ctx->pool, ctx);
 }
 
 static void socket_read_handler(ngx_event_t *rev)
@@ -641,7 +651,7 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 {
 	ngx_connection_t *c;
 	KEYLESS_CTX *ctx;
-	keyless_op_st *op = NULL;
+	keyless_op_st *op;
 	kssl_header_st header;
 	kssl_operation_st operation;
 	enum ssl_private_key_result_t rc;
@@ -650,14 +660,12 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 
 	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
-		rc = ssl_private_key_failure;
-		goto cleanup;
+		return ssl_private_key_failure;
 	}
 
 	op = SSL_get_ex_data(ssl, g_ssl_exdata_op_index);
 	if (!op) {
-		rc = ssl_private_key_failure;
-		goto cleanup;
+		return ssl_private_key_failure;
 	}
 
 	if (op->recv.last - op->recv.pos < (ssize_t)KSSL_HEADER_SIZE) {
@@ -733,13 +741,17 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 			rc = ssl_private_key_failure;
 			break;
 	}
-cleanup:
-	if (op) {
-		OPENSSL_cleanse(op->recv.start, op->recv.end - op->recv.start);
-		ngx_pfree(ctx->pool, op->recv.start);
 
-		ngx_pfree(ctx->pool, op);
-	}
+cleanup:
+	OPENSSL_cleanse(op->recv.start, op->recv.end - op->recv.start);
+	ngx_pfree(ctx->pool, op->recv.start);
+
+	op->recv.start = NULL;
+	op->recv.pos = NULL;
+	op->recv.last = NULL;
+	op->recv.end = NULL;
+
+	ngx_pfree(ctx->pool, op);
 
 	return rc;
 }
@@ -822,6 +834,7 @@ int ngx_http_keyless_ffi_set_private_key(ngx_http_request_t *r, const char *addr
 	ngx_connection_t *c;
 	X509 *x509;
 	KEYLESS_CTX *ctx;
+	ngx_pool_cleanup_t *cln;
 
 	if (!r->connection || !r->connection->ssl) {
 		*err = "bad request";
@@ -849,11 +862,22 @@ int ngx_http_keyless_ffi_set_private_key(ngx_http_request_t *r, const char *addr
 	}
 
 	if (!keyless_attach_ssl(ssl_conn, ctx)) {
-		keyless_free(c->pool, ctx);
+		keyless_free(ctx);
 
 		*err = "keyless_attach_ssl failed";
 		return NGX_ERROR;
 	}
+
+	cln = ngx_pool_cleanup_add(c->pool, 0);
+	if (!cln) {
+		keyless_free(ctx);
+
+		*err = "ngx_pool_cleanup_add failed";
+		return NGX_ERROR;
+	}
+
+	cln->handler = (ngx_pool_cleanup_pt)keyless_free;
+	cln->data = ctx;
 
 	return NGX_OK;
 }

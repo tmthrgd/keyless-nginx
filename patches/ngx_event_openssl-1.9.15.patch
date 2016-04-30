@@ -1,6 +1,6 @@
 diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
---- a/src/event/ngx_event_openssl.c	2016-02-25 01:23:23.000000000 +1030
-+++ b/src/event/ngx_event_openssl.c	2016-03-28 19:56:56.841534666 +1030
+--- a/src/event/ngx_event_openssl.c	2016-04-20 01:32:38.000000000 +0930
++++ b/src/event/ngx_event_openssl.c	2016-04-30 12:03:53.149074330 +0930
 @@ -13,6 +13,9 @@
  #define NGX_SSL_PASSWORD_BUFFER_SIZE  4096
  
@@ -11,7 +11,7 @@ diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
  typedef struct {
      ngx_uint_t  engine;   /* unsigned  engine:1; */
  } ngx_openssl_conf_t;
-@@ -388,6 +391,35 @@ ngx_ssl_certificate(ngx_conf_t *cf, ngx_
+@@ -399,6 +402,35 @@ ngx_ssl_certificate(ngx_conf_t *cf, ngx_
  
      BIO_free(bio);
  
@@ -37,7 +37,7 @@ diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
 +        if (keyless_attach_ssl_ctx(ssl->ctx, ctx) == 0) {
 +            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
 +                          "keyless_attach_ssl_ctx(\"%s\") failed", addr);
-+            keyless_free(cf->pool, ctx);
++            keyless_free(ctx);
 +            return NGX_ERROR;
 +        }
 +
@@ -47,7 +47,7 @@ diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
      if (ngx_strncmp(key->data, "engine:", sizeof("engine:") - 1) == 0) {
  
  #ifndef OPENSSL_NO_ENGINE
-@@ -1199,6 +1231,21 @@ ngx_ssl_handshake(ngx_connection_t *c)
+@@ -1210,6 +1242,21 @@ ngx_ssl_handshake(ngx_connection_t *c)
          c->read->handler = ngx_ssl_handshake_handler;
          c->write->handler = ngx_ssl_handshake_handler;
  
