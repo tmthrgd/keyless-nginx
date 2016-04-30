@@ -27,8 +27,6 @@
 
 #define OP_BUFFER_SIZE 2*1024
 
-static void ngx_keyless_exit_process(ngx_cycle_t *cycle);
-
 static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len,
 		size_t max_out);
 
@@ -89,19 +87,6 @@ const SSL_PRIVATE_KEY_METHOD key_method = {
 	key_decrypt,
 	key_decrypt_complete,
 };
-
-static void ngx_keyless_exit_process(ngx_cycle_t *cycle)
-{
-	ngx_connection_t *c;
-	ngx_uint_t i;
-
-	c = cycle->connections;
-	for (i = 0; i < cycle->connection_n; i++) {
-		if (c[i].read->handler == socket_read_handler) {
-			ngx_close_connection(&c[i]);
-		}
-	}
-}
 
 KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 		const struct sockaddr *address, size_t address_len)
@@ -907,11 +892,7 @@ ngx_module_t ngx_keyless_module = {
 	NULL,                       /* init process */
 	NULL,                       /* init thread */
 	NULL,                       /* exit thread */
-#if NGX_HTTP_SSL
-	ngx_keyless_exit_process,   /* exit process */
-#else /* NGX_HTTP_SSL */
 	NULL,                       /* exit process */
-#endif /* NGX_HTTP_SSL */
 	NULL,                       /* exit master */
 	NGX_MODULE_V1_PADDING
 };
