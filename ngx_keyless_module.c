@@ -698,7 +698,7 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 				break;
 			}
 
-			memcpy(out, operation.payload, operation.payload_len);
+			ngx_memcpy(out, operation.payload, operation.payload_len);
 			*out_len = operation.payload_len;
 
 			rc = ssl_private_key_success;
