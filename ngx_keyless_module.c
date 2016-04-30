@@ -757,7 +757,7 @@ cleanup:
 
 static int key_type(SSL *ssl)
 {
-	const KEYLESS_CTX *ctx = NULL;
+	const KEYLESS_CTX *ctx;
 
 	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
@@ -769,7 +769,7 @@ static int key_type(SSL *ssl)
 
 static size_t key_max_signature_len(SSL *ssl)
 {
-	const KEYLESS_CTX *ctx = NULL;
+	const KEYLESS_CTX *ctx;
 
 	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
