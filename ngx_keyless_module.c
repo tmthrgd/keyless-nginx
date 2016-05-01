@@ -165,7 +165,7 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 				hex[i] = ngx_toupper(hex[i]);
 	    		}
 
-			if (!SHA256((const uint8_t *)hex, i, ctx->digest)) {
+			if (!SHA256((const uint8_t *)hex, i/* = ngx_strlen(hex)*/, ctx->digest)) {
 				goto error;
 			}
 
