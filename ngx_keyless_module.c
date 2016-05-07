@@ -56,6 +56,8 @@ typedef struct keyless_ctx_st {
 
 	ngx_connection_t *c;
 
+	ngx_atomic_uint_t id;
+
 	ngx_queue_t recv_ops;
 	ngx_queue_t send_ops;
 
@@ -511,11 +513,8 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	header.version_maj = KSSL_VERSION_MAJ;
 	header.version_min = KSSL_VERSION_MIN;
 
-	if (RAND_bytes((uint8_t *)&header.id, sizeof(header.id)) != 1) {
-		goto error;
-	}
-
-	op->id = header.id;
+	op->id = ngx_atomic_fetch_add(&ctx->id, 1);
+	header.id = op->id;
 
 	kssl_zero_operation(&operation);
 
