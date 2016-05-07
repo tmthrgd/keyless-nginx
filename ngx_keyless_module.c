@@ -559,27 +559,25 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 			break;
 	}
 
-	if (ngx_connection_local_sockaddr(ngx_conn, NULL, 0) != NGX_OK) {
-		goto error;
-	}
-
-	switch (ngx_conn->local_sockaddr->sa_family) {
+	if (ngx_connection_local_sockaddr(ngx_conn, NULL, 0) == NGX_OK) {
+		switch (ngx_conn->local_sockaddr->sa_family) {
 #if NGX_HAVE_INET6
-		case AF_INET6:
-			sin6 = (const struct sockaddr_in6 *)ngx_conn->local_sockaddr;
+			case AF_INET6:
+				sin6 = (const struct sockaddr_in6 *)ngx_conn->local_sockaddr;
 
-			operation.is_server_ip_set = 1;
-			operation.server_ip_len = 16;
-			operation.server_ip = (const unsigned char *)&sin6->sin6_addr.s6_addr[0];
-			break;
+				operation.is_server_ip_set = 1;
+				operation.server_ip_len = 16;
+				operation.server_ip = (const unsigned char *)&sin6->sin6_addr.s6_addr[0];
+				break;
 #endif /* NGX_HAVE_INET6 */
-		case AF_INET:
-			sin = (const struct sockaddr_in *)ngx_conn->local_sockaddr;
+			case AF_INET:
+				sin = (const struct sockaddr_in *)ngx_conn->local_sockaddr;
 
-			operation.is_server_ip_set = 1;
-			operation.server_ip_len = 4;
-			operation.server_ip = (const unsigned char *)&sin->sin_addr.s_addr;
-			break;
+				operation.is_server_ip_set = 1;
+				operation.server_ip_len = 4;
+				operation.server_ip = (const unsigned char *)&sin->sin_addr.s_addr;
+				break;
+		}
 	}
 
 	length = kssl_flatten_operation(&header, &operation, NULL);
