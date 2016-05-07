@@ -567,7 +567,8 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 
 				operation.is_server_ip_set = 1;
 				operation.server_ip_len = 16;
-				operation.server_ip = (const unsigned char *)&sin6->sin6_addr.s6_addr[0];
+				operation.server_ip
+					= (const unsigned char *)&sin6->sin6_addr.s6_addr[0];
 				break;
 #endif /* NGX_HAVE_INET6 */
 			case AF_INET:
