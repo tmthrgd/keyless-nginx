@@ -5,8 +5,6 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#if NGX_HTTP_SSL
-
 #include <ngx_event.h>
 
 #include <kssl.h>
@@ -26,25 +24,25 @@
 
 #define OP_BUFFER_SIZE 2*1024
 
-static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len,
-		size_t max_out);
+static enum ssl_private_key_result_t ngx_keyless_operation_complete(SSL *ssl, uint8_t *out,
+		size_t *out_len, size_t max_out);
 
-static int key_type(SSL *ssl);
-static size_t key_max_signature_len(SSL *ssl);
-static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *out_len,
+static int ngx_keyless_key_type(SSL *ssl);
+static size_t ngx_keyless_key_max_signature_len(SSL *ssl);
+static enum ssl_private_key_result_t ngx_keyless_key_sign(SSL *ssl, uint8_t *out, size_t *out_len,
 		size_t max_out, const EVP_MD *md, const uint8_t *in, size_t in_len);
-#define key_sign_complete operation_complete
-static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t *out_len,
-		size_t max_out, const uint8_t *in, size_t in_len);
-#define key_decrypt_complete operation_complete
+#define ngx_keyless_key_sign_complete ngx_keyless_operation_complete
+static enum ssl_private_key_result_t ngx_keyless_key_decrypt(SSL *ssl, uint8_t *out,
+		size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
+#define ngx_keyless_key_decrypt_complete ngx_keyless_operation_complete
 
-static void socket_read_handler(ngx_event_t *rev);
-static void socket_write_handler(ngx_event_t *wev);
+static void ngx_keyless_socket_read_handler(ngx_event_t *rev);
+static void ngx_keyless_socket_write_handler(ngx_event_t *wev);
 
-static void operation_timeout_handler(ngx_event_t *ev);
-static void cleanup_timer_handler(void *data);
+static void ngx_keyless_operation_timeout_handler(ngx_event_t *ev);
+static void ngx_keyless_cleanup_timer_handler(void *data);
 
-typedef struct keyless_ctx_st {
+typedef struct ngx_keyless_ctx_st {
 	struct {
 		int type;
 		size_t sig_len;
@@ -65,7 +63,7 @@ typedef struct keyless_ctx_st {
 
 	ngx_pool_t *pool;
 	ngx_log_t *log;
-} KEYLESS_CTX;
+} NGX_KEYLESS_CTX;
 
 typedef struct {
 	ngx_event_t *ev;
@@ -77,27 +75,56 @@ typedef struct {
 
 	ngx_queue_t recv_queue;
 	ngx_queue_t send_queue;
-} keyless_op_st;
+} ngx_keyless_op_st;
 
 static int g_ssl_exdata_ctx_index = -1;
 static int g_ssl_ctx_exdata_ctx_index = -1;
 static int g_ssl_exdata_op_index = -1;
 static int g_ssl_exdata_timeout_index = -1;
 
-const SSL_PRIVATE_KEY_METHOD key_method = {
-	key_type,
-	key_max_signature_len,
-	key_sign,
-	key_sign_complete,
-	key_decrypt,
-	key_decrypt_complete,
+const SSL_PRIVATE_KEY_METHOD ngx_keyless_key_method = {
+	ngx_keyless_key_type,
+	ngx_keyless_key_max_signature_len,
+	ngx_keyless_key_sign,
+	ngx_keyless_key_sign_complete,
+	ngx_keyless_key_decrypt,
+	ngx_keyless_key_decrypt_complete,
 };
 
-KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
+ngx_http_module_t ngx_keyless_module_ctx = {
+	NULL, /* preconfiguration */
+	NULL, /* postconfiguration */
+
+	NULL, /* create main configuration */
+	NULL, /* init main configuration */
+
+	NULL, /* create server configuration */
+	NULL, /* merge server configuration */
+
+	NULL, /* create location configuration */
+	NULL  /* merge location configuration */
+};
+
+ngx_module_t ngx_keyless_module = {
+	NGX_MODULE_V1,
+	&ngx_keyless_module_ctx, /* module context */
+	NULL,                    /* module directives */
+	NGX_CORE_MODULE,         /* module type */
+	NULL,                    /* init master */
+	NULL,                    /* init module */
+	NULL,                    /* init process */
+	NULL,                    /* init thread */
+	NULL,                    /* exit thread */
+	NULL,                    /* exit process */
+	NULL,                    /* exit master */
+	NGX_MODULE_V1_PADDING
+};
+
+NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 		const struct sockaddr *address, size_t address_len)
 {
 	EVP_PKEY *public_key = NULL;
-	KEYLESS_CTX *ctx = NULL;
+	NGX_KEYLESS_CTX *ctx = NULL;
 	char *hex = NULL;
 	size_t i;
 
@@ -134,7 +161,7 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 		goto error;
 	}
 
-	ctx = ngx_pcalloc(pool, sizeof(KEYLESS_CTX));
+	ctx = ngx_pcalloc(pool, sizeof(NGX_KEYLESS_CTX));
 	if (!ctx) {
 		goto error;
 	}
@@ -212,7 +239,7 @@ error:
 	return NULL;
 }
 
-KEYLESS_CTX *keyless_parse_and_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
+NGX_KEYLESS_CTX *ngx_keyless_parse_and_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 		const char *addr, size_t addr_len)
 {
 	ngx_url_t url;
@@ -221,7 +248,7 @@ KEYLESS_CTX *keyless_parse_and_create(ngx_pool_t *pool, ngx_log_t *log, X509 *ce
 
 	url.url.len = addr_len;
 	url.url.data = (unsigned char *)addr;
-	url.default_port = (in_port_t)KEYLESS_DEFAULT_PORT;
+	url.default_port = (in_port_t)NGX_KEYLESS_DEFAULT_PORT;
 	url.no_resolve = 1;
 
 	if (ngx_parse_url(pool, &url) != NGX_OK) {
@@ -232,12 +259,12 @@ KEYLESS_CTX *keyless_parse_and_create(ngx_pool_t *pool, ngx_log_t *log, X509 *ce
 		return NULL;
 	}
 
-	return keyless_create(pool, log, cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
+	return ngx_keyless_create(pool, log, cert, url.addrs[0].sockaddr, url.addrs[0].socklen);
 }
 
-KEYLESS_CTX *ssl_get_keyless_ctx(SSL *ssl)
+NGX_KEYLESS_CTX *ngx_keyless_ssl_get_ctx(SSL *ssl)
 {
-	KEYLESS_CTX *ctx;
+	NGX_KEYLESS_CTX *ctx;
 
 	ctx = SSL_get_ex_data(ssl, g_ssl_exdata_ctx_index);
 	if (ctx) {
@@ -247,34 +274,34 @@ KEYLESS_CTX *ssl_get_keyless_ctx(SSL *ssl)
 	return SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_ctx_index);
 }
 
-KEYLESS_CTX *ssl_ctx_get_keyless_ctx(SSL_CTX *ssl_ctx)
+NGX_KEYLESS_CTX *ngx_keyless_ssl_ctx_get_ctx(SSL_CTX *ssl_ctx)
 {
 	return SSL_CTX_get_ex_data(ssl_ctx, g_ssl_ctx_exdata_ctx_index);
 }
 
-int keyless_attach_ssl(SSL *ssl, KEYLESS_CTX *ctx)
+int ngx_keyless_attach_ssl(SSL *ssl, NGX_KEYLESS_CTX *ctx)
 {
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_ctx_index, ctx)) {
 		return 0;
 	}
 
-	SSL_set_private_key_method(ssl, &key_method);
+	SSL_set_private_key_method(ssl, &ngx_keyless_key_method);
 	return 1;
 }
 
-int keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, KEYLESS_CTX *ctx)
+int ngx_keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, NGX_KEYLESS_CTX *ctx)
 {
 	if (!SSL_CTX_set_ex_data(ssl_ctx, g_ssl_ctx_exdata_ctx_index, ctx)) {
 		return 0;
 	}
 
-	SSL_CTX_set_private_key_method(ssl_ctx, &key_method);
+	SSL_CTX_set_private_key_method(ssl_ctx, &ngx_keyless_key_method);
 	return 1;
 }
 
-void keyless_free(KEYLESS_CTX *ctx)
+void ngx_keyless_free(NGX_KEYLESS_CTX *ctx)
 {
-	keyless_op_st *op;
+	ngx_keyless_op_st *op;
 	ngx_queue_t *q;
 
 	if (ctx->c) {
@@ -284,7 +311,7 @@ void keyless_free(KEYLESS_CTX *ctx)
 	for (q = ngx_queue_head(&ctx->recv_ops);
 		q != ngx_queue_sentinel(&ctx->recv_ops);
 		q = ngx_queue_next(q)) {
-		op = ngx_queue_data(q, keyless_op_st, recv_queue);
+		op = ngx_queue_data(q, ngx_keyless_op_st, recv_queue);
 
 		if (op->send.start) {
 			OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
@@ -302,11 +329,11 @@ void keyless_free(KEYLESS_CTX *ctx)
 	ngx_pfree(ctx->pool, ctx);
 }
 
-static void socket_read_handler(ngx_event_t *rev)
+static void ngx_keyless_socket_read_handler(ngx_event_t *rev)
 {
 	ngx_connection_t *c;
-	KEYLESS_CTX *ctx;
-	keyless_op_st *op;
+	NGX_KEYLESS_CTX *ctx;
+	ngx_keyless_op_st *op;
 	ngx_queue_t *q;
 	ngx_buf_t recv;
 	kssl_header_st header;
@@ -355,7 +382,7 @@ static void socket_read_handler(ngx_event_t *rev)
 	for (q = ngx_queue_head(&ctx->recv_ops);
 		q != ngx_queue_sentinel(&ctx->recv_ops);
 		q = ngx_queue_next(q)) {
-		op = ngx_queue_data(q, keyless_op_st, recv_queue);
+		op = ngx_queue_data(q, ngx_keyless_op_st, recv_queue);
 
 		if (op->id != header.id) {
 			continue;
@@ -375,11 +402,11 @@ cleanup:
 	ngx_pfree(c->pool, recv.start);
 }
 
-static void socket_write_handler(ngx_event_t *wev)
+static void ngx_keyless_socket_write_handler(ngx_event_t *wev)
 {
 	ngx_connection_t *c;
-	KEYLESS_CTX *ctx;
-	keyless_op_st *op;
+	NGX_KEYLESS_CTX *ctx;
+	ngx_keyless_op_st *op;
 	ngx_queue_t *q;
 	ssize_t size;
 
@@ -391,7 +418,7 @@ static void socket_write_handler(ngx_event_t *wev)
 	}
 
 	q = ngx_queue_head(&ctx->send_ops);
-	op = ngx_queue_data(q, keyless_op_st, send_queue);
+	op = ngx_queue_data(q, ngx_keyless_op_st, send_queue);
 
 	size = c->send(c, op->send.pos, op->send.last - op->send.pos);
 	if (size > 0) {
@@ -420,11 +447,11 @@ static void socket_write_handler(ngx_event_t *wev)
 	op->send.end = NULL;
 }
 
-static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL *ssl,
+static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et opcode, SSL *ssl,
 		uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
-	KEYLESS_CTX *ctx;
-	keyless_op_st *op = NULL;
+	NGX_KEYLESS_CTX *ctx;
+	ngx_keyless_op_st *op = NULL;
 	ngx_int_t event;
 	ngx_event_t *rev, *wev;
 	ngx_socket_t s;
@@ -439,7 +466,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	ngx_pool_cleanup_t *cln;
 	ngx_event_t *ev;
 
-	ctx = ssl_get_keyless_ctx(ssl);
+	ctx = ngx_keyless_ssl_get_ctx(ssl);
 	if (!ctx) {
 		goto error;
 	}
@@ -504,8 +531,8 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 			goto error;
 		}
 
-		rev->handler = socket_read_handler;
-		wev->handler = socket_write_handler;
+		rev->handler = ngx_keyless_socket_read_handler;
+		wev->handler = ngx_keyless_socket_write_handler;
 
 		ctx->c = c;
 
@@ -515,7 +542,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 
 	ngx_conn = ngx_ssl_get_connection(ssl);
 
-	op = ngx_pcalloc(ctx->pool, sizeof(keyless_op_st));
+	op = ngx_pcalloc(ctx->pool, sizeof(ngx_keyless_op_st));
 	if (!op) {
 		goto error;
 	}
@@ -621,7 +648,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 		goto error;
 	}
 
-	ev->handler = operation_timeout_handler;
+	ev->handler = ngx_keyless_operation_timeout_handler;
 	ev->data = ngx_conn->write;
 	ev->log = ngx_conn->log;
 
@@ -634,7 +661,7 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 		goto error;
 	}
 
-	cln->handler = cleanup_timer_handler;
+	cln->handler = ngx_keyless_cleanup_timer_handler;
 	cln->data = ev;
 
 	ngx_add_timer(ev, 250);
@@ -663,12 +690,12 @@ error:
 	return ssl_private_key_failure;
 }
 
-static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, size_t *out_len,
-		size_t max_out)
+static enum ssl_private_key_result_t ngx_keyless_operation_complete(SSL *ssl, uint8_t *out,
+		size_t *out_len, size_t max_out)
 {
 	ngx_connection_t *c;
-	KEYLESS_CTX *ctx;
-	keyless_op_st *op;
+	NGX_KEYLESS_CTX *ctx;
+	ngx_keyless_op_st *op;
 	kssl_header_st header;
 	kssl_operation_st operation;
 	enum ssl_private_key_result_t rc;
@@ -676,7 +703,7 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 
 	c = ngx_ssl_get_connection(ssl);
 
-	ctx = ssl_get_keyless_ctx(ssl);
+	ctx = ngx_keyless_ssl_get_ctx(ssl);
 	if (!ctx) {
 		return ssl_private_key_failure;
 	}
@@ -781,14 +808,14 @@ cleanup:
 	return rc;
 }
 
-static void operation_timeout_handler(ngx_event_t *ev)
+static void ngx_keyless_operation_timeout_handler(ngx_event_t *ev)
 {
 	ngx_event_t *wev = ev->data;
 
 	ngx_post_event(wev, &ngx_posted_events);
 }
 
-static void cleanup_timer_handler(void *data)
+static void ngx_keyless_cleanup_timer_handler(void *data)
 {
 	ngx_event_t *ev = data;
 
@@ -797,11 +824,11 @@ static void cleanup_timer_handler(void *data)
 	}
 }
 
-static int key_type(SSL *ssl)
+static int ngx_keyless_key_type(SSL *ssl)
 {
-	const KEYLESS_CTX *ctx;
+	const NGX_KEYLESS_CTX *ctx;
 
-	ctx = ssl_get_keyless_ctx(ssl);
+	ctx = ngx_keyless_ssl_get_ctx(ssl);
 	if (!ctx) {
 		return 0;
 	}
@@ -809,11 +836,11 @@ static int key_type(SSL *ssl)
 	return ctx->key.type;
 }
 
-static size_t key_max_signature_len(SSL *ssl)
+static size_t ngx_keyless_key_max_signature_len(SSL *ssl)
 {
-	const KEYLESS_CTX *ctx;
+	const NGX_KEYLESS_CTX *ctx;
 
-	ctx = ssl_get_keyless_ctx(ssl);
+	ctx = ngx_keyless_ssl_get_ctx(ssl);
 	if (!ctx) {
 		return 0;
 	}
@@ -821,11 +848,11 @@ static size_t key_max_signature_len(SSL *ssl)
 	return ctx->key.sig_len;
 }
 
-static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *out_len,
+static enum ssl_private_key_result_t ngx_keyless_key_sign(SSL *ssl, uint8_t *out, size_t *out_len,
 		size_t max_out, const EVP_MD *md, const uint8_t *in, size_t in_len)
 {
 	kssl_opcode_et opcode;
-	const KEYLESS_CTX *ctx;
+	const NGX_KEYLESS_CTX *ctx;
 
 	switch (EVP_MD_type(md)) {
 		case NID_sha1:
@@ -850,7 +877,7 @@ static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *ou
 			return ssl_private_key_failure;
 	}
 
-	ctx = ssl_get_keyless_ctx(ssl);
+	ctx = ngx_keyless_ssl_get_ctx(ssl);
 	if (!ctx) {
 		return ssl_private_key_failure;
 	}
@@ -859,13 +886,13 @@ static enum ssl_private_key_result_t key_sign(SSL *ssl, uint8_t *out, size_t *ou
 		opcode |= KSSL_OP_ECDSA_MASK;
 	}
 
-	return start_operation(opcode, ssl, out, out_len, max_out, in, in_len);
+	return ngx_keyless_start_operation(opcode, ssl, out, out_len, max_out, in, in_len);
 }
 
-static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t *out_len,
-		size_t max_out, const uint8_t *in, size_t in_len)
+static enum ssl_private_key_result_t ngx_keyless_key_decrypt(SSL *ssl, uint8_t *out,
+		size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
 {
-	return start_operation(KSSL_OP_RSA_DECRYPT_RAW, ssl, out, out_len, max_out, in, in_len);
+	return ngx_keyless_start_operation(KSSL_OP_RSA_DECRYPT_RAW, ssl, out, out_len, max_out, in, in_len);
 }
 
 int ngx_http_keyless_ffi_set_private_key(ngx_http_request_t *r, const char *addr, size_t addr_len,
@@ -874,7 +901,7 @@ int ngx_http_keyless_ffi_set_private_key(ngx_http_request_t *r, const char *addr
 	ngx_ssl_conn_t *ssl_conn;
 	ngx_connection_t *c;
 	X509 *x509;
-	KEYLESS_CTX *ctx;
+	NGX_KEYLESS_CTX *ctx;
 	ngx_pool_cleanup_t *cln;
 
 	if (!r->connection || !r->connection->ssl) {
@@ -896,60 +923,29 @@ int ngx_http_keyless_ffi_set_private_key(ngx_http_request_t *r, const char *addr
 
 	c = ngx_ssl_get_connection(ssl_conn);
 
-	ctx = keyless_parse_and_create(c->pool, c->log, x509, addr, addr_len);
+	ctx = ngx_keyless_parse_and_create(c->pool, c->log, x509, addr, addr_len);
 	if (!ctx) {
-		*err = "keyless_parse_and_create failed";
+		*err = "ngx_keyless_parse_and_create failed";
 		return NGX_ERROR;
 	}
 
-	if (!keyless_attach_ssl(ssl_conn, ctx)) {
-		keyless_free(ctx);
+	if (!ngx_keyless_attach_ssl(ssl_conn, ctx)) {
+		ngx_keyless_free(ctx);
 
-		*err = "keyless_attach_ssl failed";
+		*err = "ngx_keyless_attach_ssl failed";
 		return NGX_ERROR;
 	}
 
 	cln = ngx_pool_cleanup_add(c->pool, 0);
 	if (!cln) {
-		keyless_free(ctx);
+		ngx_keyless_free(ctx);
 
 		*err = "ngx_pool_cleanup_add failed";
 		return NGX_ERROR;
 	}
 
-	cln->handler = (ngx_pool_cleanup_pt)keyless_free;
+	cln->handler = (ngx_pool_cleanup_pt)ngx_keyless_free;
 	cln->data = ctx;
 
 	return NGX_OK;
 }
-
-#endif /* NGX_HTTP_SSL */
-
-ngx_http_module_t ngx_keyless_module_ctx = {
-	NULL, /* preconfiguration */
-	NULL, /* postconfiguration */
-
-	NULL, /* create main configuration */
-	NULL, /* init main configuration */
-
-	NULL, /* create server configuration */
-	NULL, /* merge server configuration */
-
-	NULL, /* create location configuration */
-	NULL  /* merge location configuration */
-};
-
-ngx_module_t ngx_keyless_module = {
-	NGX_MODULE_V1,
-	&ngx_keyless_module_ctx, /* module context */
-	NULL,                       /* module directives */
-	NGX_CORE_MODULE,            /* module type */
-	NULL,                       /* init master */
-	NULL,                       /* init module */
-	NULL,                       /* init process */
-	NULL,                       /* init thread */
-	NULL,                       /* exit thread */
-	NULL,                       /* exit process */
-	NULL,                       /* exit master */
-	NGX_MODULE_V1_PADDING
-};

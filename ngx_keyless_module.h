@@ -1,33 +1,29 @@
-#ifndef _NGX_HTTP_VIPER_RADON_H_INCLUDED_
-#define _NGX_HTTP_VIPER_RADON_H_INCLUDED_
+#ifndef _NGX_HTTP_KEYLESS_H_INCLUDED_
+#define _NGX_HTTP_KEYLESS_H_INCLUDED_
 
 #include <ngx_config.h>
 #include <ngx_core.h>
-
-#if NGX_HTTP_SSL
 
 #include <sys/socket.h>
 
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-#define KEYLESS_DEFAULT_PORT 1163
+#define NGX_KEYLESS_DEFAULT_PORT 1163
 
-typedef struct keyless_ctx_st KEYLESS_CTX;
+typedef struct ngx_keyless_ctx_st NGX_KEYLESS_CTX;
 
-KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
+NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 		const struct sockaddr *address, size_t address_len);
-KEYLESS_CTX *keyless_parse_and_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
+NGX_KEYLESS_CTX *ngx_keyless_parse_and_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 		const char *addr, size_t addr_len);
 
-KEYLESS_CTX *ssl_get_keyless_ctx(SSL *ssl);
-KEYLESS_CTX *ssl_ctx_get_keyless_ctx(SSL_CTX *ssl_ctx);
+NGX_KEYLESS_CTX *ngx_keyless_ssl_get_ctx(SSL *ssl);
+NGX_KEYLESS_CTX *ngx_keyless_ssl_ctx_get_ctx(SSL_CTX *ssl_ctx);
 
-int keyless_attach_ssl(SSL *ssl, KEYLESS_CTX *ctx);
-int keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, KEYLESS_CTX *ctx);
+int ngx_keyless_attach_ssl(SSL *ssl, NGX_KEYLESS_CTX *ctx);
+int ngx_keyless_attach_ssl_ctx(SSL_CTX *ssl_ctx, NGX_KEYLESS_CTX *ctx);
 
-void keyless_free(KEYLESS_CTX *ctx);
+void ngx_keyless_free(NGX_KEYLESS_CTX *ctx);
 
-#endif /* NGX_HTTP_SSL */
-
-#endif /* _NGX_HTTP_VIPER_RADON_H_INCLUDED_ */
+#endif /* _NGX_HTTP_KEYLESS_H_INCLUDED_ */

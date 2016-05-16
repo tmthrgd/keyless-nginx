@@ -1,6 +1,6 @@
 diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
 --- a/src/event/ngx_event_openssl.c	2016-04-20 01:32:38.000000000 +0930
-+++ b/src/event/ngx_event_openssl.c	2016-05-01 01:48:05.016988993 +0930
++++ b/src/event/ngx_event_openssl.c	2016-05-16 16:27:28.014484776 +0930
 @@ -13,6 +13,9 @@
  #define NGX_SSL_PASSWORD_BUFFER_SIZE  4096
  
@@ -19,7 +19,7 @@ diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
 +
 +        u_char *addr;
 +        size_t addr_len;
-+        KEYLESS_CTX *ctx;
++        NGX_KEYLESS_CTX *ctx;
 +        ngx_pool_cleanup_t *cln;
 +
 +        x509 = SSL_CTX_get_ex_data(ssl->ctx, ngx_ssl_certificate_index);
@@ -27,30 +27,30 @@ diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
 +        addr = key->data + sizeof("keyless:") - 1;
 +        addr_len = key->len - sizeof("keyless:") + 1;
 +
-+        ctx = keyless_parse_and_create(cf->cycle->pool, cf->cycle->log, x509,
-+                                       (const char *)addr, addr_len);
++        ctx = ngx_keyless_parse_and_create(cf->cycle->pool, cf->cycle->log,
++                                       x509, (const char *)addr, addr_len);
 +
 +        if (ctx == NULL) {
 +            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
-+                          "keyless_parse_and_create(\"%s\") failed", addr);
++                          "ngx_keyless_parse_and_create(\"%s\") failed", addr);
 +            return NGX_ERROR;
 +        }
 +
-+        if (keyless_attach_ssl_ctx(ssl->ctx, ctx) == 0) {
++        if (ngx_keyless_attach_ssl_ctx(ssl->ctx, ctx) == 0) {
 +            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
-+                          "keyless_attach_ssl_ctx(\"%s\") failed", addr);
-+            keyless_free(ctx);
++                          "ngx_keyless_attach_ssl_ctx(\"%s\") failed", addr);
++            ngx_keyless_free(ctx);
 +            return NGX_ERROR;
 +        }
 +
 +        cln = ngx_pool_cleanup_add(cf->cycle->pool, 0);
 +        if (!cln) {
 +            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0, "ngx_pool_cleanup_add");
-+            keyless_free(ctx);
++            ngx_keyless_free(ctx);
 +            return NGX_ERROR;
 +        }
 +
-+        cln->handler = (ngx_pool_cleanup_pt)keyless_free;
++        cln->handler = (ngx_pool_cleanup_pt)ngx_keyless_free;
 +        cln->data = ctx;
 +
 +        return NGX_OK;
