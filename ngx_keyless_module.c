@@ -131,6 +131,7 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 	if (g_ssl_exdata_ctx_index == -1) {
 		g_ssl_exdata_ctx_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_exdata_ctx_index == -1) {
+			ngx_log_error(NGX_LOG_EMERG, log, 0, "SSL_get_ex_new_index failed");
 			goto error;
 		}
 	}
@@ -138,6 +139,7 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 	if (g_ssl_ctx_exdata_ctx_index == -1) {
 		g_ssl_ctx_exdata_ctx_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_ctx_exdata_ctx_index == -1) {
+			ngx_log_error(NGX_LOG_EMERG, log, 0, "SSL_CTX_get_ex_new_index failed");
 			goto error;
 		}
 	}
@@ -145,6 +147,7 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 	if (g_ssl_exdata_op_index == -1) {
 		g_ssl_exdata_op_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_exdata_op_index == -1) {
+			ngx_log_error(NGX_LOG_EMERG, log, 0, "SSL_get_ex_new_index failed");
 			goto error;
 		}
 	}
@@ -152,17 +155,20 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 	if (g_ssl_exdata_timeout_index == -1) {
 		g_ssl_exdata_timeout_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_exdata_timeout_index == -1) {
+			ngx_log_error(NGX_LOG_EMERG, log, 0, "SSL_get_ex_new_index failed");
 			goto error;
 		}
 	}
 
 	public_key = X509_get_pubkey(cert);
 	if (!public_key) {
+		ngx_log_error(NGX_LOG_EMERG, log, 0, "X509_get_pubkey failed");
 		goto error;
 	}
 
 	ctx = ngx_pcalloc(pool, sizeof(NGX_KEYLESS_CTX));
 	if (!ctx) {
+		ngx_log_error(NGX_LOG_EMERG, log, 0, "ngx_pcalloc failed");
 		goto error;
 	}
 
@@ -179,11 +185,13 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 		|| !cert->cert_info->key
 		|| !cert->cert_info->key->public_key
 		|| !cert->cert_info->key->public_key->length) {
+		ngx_log_error(NGX_LOG_EMERG, log, 0, "certificate does not contain valid public key");
 		goto error;
 	}
 
 	if (!SHA1(cert->cert_info->key->public_key->data,
 			cert->cert_info->key->public_key->length, ctx->ski)) {
+		ngx_log_error(NGX_LOG_EMERG, log, 0, "SHA1 failed");
 		goto error;
 	}
 
@@ -192,11 +200,14 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 			if (!cert->cert_info->key->pkey
 				|| !cert->cert_info->key->pkey->pkey.rsa
 				|| !cert->cert_info->key->pkey->pkey.rsa->n) {
+				ngx_log_error(NGX_LOG_EMERG, log, 0,
+					"RSA certificate does not contain N");
 				goto error;
 			}
 
 			hex = BN_bn2hex(cert->cert_info->key->pkey->pkey.rsa->n);
 			if (!hex) {
+				ngx_log_error(NGX_LOG_EMERG, log, 0, "BN_bn2hex failed");
 				goto error;
 			}
 
@@ -205,6 +216,7 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 	    		}
 
 			if (!SHA256((const uint8_t *)hex, i/* = ngx_strlen(hex)*/, ctx->digest)) {
+				ngx_log_error(NGX_LOG_EMERG, log, 0, "SHA256 failed");
 				goto error;
 			}
 
@@ -252,10 +264,12 @@ NGX_KEYLESS_CTX *ngx_keyless_parse_and_create(ngx_pool_t *pool, ngx_log_t *log, 
 	url.no_resolve = 1;
 
 	if (ngx_parse_url(pool, &url) != NGX_OK) {
+		ngx_log_error(NGX_LOG_EMERG, log, 0, "ngx_parse_url failed");
 		return NULL;
 	}
 
 	if (!url.addrs || !url.addrs[0].sockaddr) {
+		ngx_log_error(NGX_LOG_EMERG, log, 0, "failed to parse address");
 		return NULL;
 	}
 
@@ -544,6 +558,7 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 
 	op = ngx_pcalloc(ctx->pool, sizeof(ngx_keyless_op_st));
 	if (!op) {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "ngx_pcalloc failed");
 		goto error;
 	}
 
@@ -617,10 +632,13 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 				operation.server_ip = (const unsigned char *)&sin->sin_addr.s_addr;
 				break;
 		}
+	} else {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "ngx_connection_local_sockaddr failed");
 	}
 
 	length = kssl_flatten_operation(&header, &operation, NULL);
 	if (!length) {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "kssl_flatten_operation failed");
 		goto error;
 	}
 
@@ -636,15 +654,18 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 	op->send.end = op->send.start + length;
 
 	if (!kssl_flatten_operation(&header, &operation, op->send.pos)) {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "kssl_flatten_operation failed");
 		goto error;
 	}
 
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_op_index, op)) {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "SSL_set_ex_data failed");
 		goto error;
 	}
 
 	ev = ngx_pcalloc(ngx_conn->pool, sizeof(ngx_event_t));
 	if (!ev) {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "ngx_pcalloc failed");
 		goto error;
 	}
 
@@ -653,11 +674,13 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 	ev->log = ngx_conn->log;
 
 	if (!SSL_set_ex_data(ssl, g_ssl_exdata_timeout_index, ev)) {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "SSL_set_ex_data failed");
 		goto error;
 	}
 
 	cln = ngx_pool_cleanup_add(ngx_conn->pool, 0);
 	if (!cln) {
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0, "ngx_pool_cleanup_add failed");
 		goto error;
 	}
 
@@ -710,6 +733,7 @@ static enum ssl_private_key_result_t ngx_keyless_operation_complete(SSL *ssl, ui
 
 	op = SSL_get_ex_data(ssl, g_ssl_exdata_op_index);
 	if (!op) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "SSL_get_ex_data failed");
 		return ssl_private_key_failure;
 	}
 
@@ -717,7 +741,6 @@ static enum ssl_private_key_result_t ngx_keyless_operation_complete(SSL *ssl, ui
 		ev = SSL_get_ex_data(ssl, g_ssl_exdata_timeout_index);
 		if (ev && ev->timedout) {
 			ngx_log_error(NGX_LOG_ERR, c->log, 0, "keyless operation timed out");
-
 			return ssl_private_key_failure;
 		}
 
@@ -731,6 +754,8 @@ static enum ssl_private_key_result_t ngx_keyless_operation_complete(SSL *ssl, ui
 	op->recv.pos += KSSL_HEADER_SIZE;
 
 	if (!kssl_parse_message_payload(op->recv.pos, header.length, &operation)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "kssl_parse_message_payload failed");
+
 		rc = ssl_private_key_failure;
 		goto cleanup;
 	}
@@ -760,6 +785,8 @@ static enum ssl_private_key_result_t ngx_keyless_operation_complete(SSL *ssl, ui
 			if (operation.payload_len == 1) {
 				ngx_log_error(NGX_LOG_ERR, c->log, 0, "keyless error: %s",
 					kssl_error_string(operation.payload[0]));
+			} else {
+				ngx_log_error(NGX_LOG_ERR, c->log, 0, "unkown keyless error");
 			}
 
 			rc = ssl_private_key_failure;
