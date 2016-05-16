@@ -9,7 +9,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-#define NGX_KEYLESS_DEFAULT_PORT 1163
+#define NGX_KEYLESS_DEFAULT_PORT 2407
 
 typedef struct ngx_keyless_ctx_st NGX_KEYLESS_CTX;
 
