@@ -41,6 +41,9 @@ static enum ssl_private_key_result_t key_decrypt(SSL *ssl, uint8_t *out, size_t 
 static void socket_read_handler(ngx_event_t *rev);
 static void socket_write_handler(ngx_event_t *wev);
 
+static void operation_timeout_handler(ngx_event_t *ev);
+static void cleanup_timer_handler(void *data);
+
 typedef struct keyless_ctx_st {
 	struct {
 		int type;
@@ -79,6 +82,7 @@ typedef struct {
 static int g_ssl_exdata_ctx_index = -1;
 static int g_ssl_ctx_exdata_ctx_index = -1;
 static int g_ssl_exdata_op_index = -1;
+static int g_ssl_exdata_timeout_index = -1;
 
 const SSL_PRIVATE_KEY_METHOD key_method = {
 	key_type,
@@ -114,6 +118,13 @@ KEYLESS_CTX *keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert,
 	if (g_ssl_exdata_op_index == -1) {
 		g_ssl_exdata_op_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_exdata_op_index == -1) {
+			goto error;
+		}
+	}
+
+	if (g_ssl_exdata_timeout_index == -1) {
+		g_ssl_exdata_timeout_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+		if (g_ssl_exdata_timeout_index == -1) {
 			goto error;
 		}
 	}
@@ -425,6 +436,8 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 	kssl_header_st header;
 	kssl_operation_st operation;
 	size_t length;
+	ngx_pool_cleanup_t *cln;
+	ngx_event_t *ev;
 
 	ctx = ssl_get_keyless_ctx(ssl);
 	if (!ctx) {
@@ -603,6 +616,29 @@ static enum ssl_private_key_result_t start_operation(kssl_opcode_et opcode, SSL 
 		goto error;
 	}
 
+	ev = ngx_pcalloc(ngx_conn->pool, sizeof(ngx_event_t));
+	if (!ev) {
+		goto error;
+	}
+
+	ev->handler = operation_timeout_handler;
+	ev->data = ngx_conn->write;
+	ev->log = ngx_conn->log;
+
+	if (!SSL_set_ex_data(ssl, g_ssl_exdata_timeout_index, ev)) {
+		goto error;
+	}
+
+	cln = ngx_pool_cleanup_add(ngx_conn->pool, 0);
+	if (!cln) {
+		goto error;
+	}
+
+	cln->handler = cleanup_timer_handler;
+	cln->data = ev;
+
+	ngx_add_timer(ev, 250);
+
 	ngx_queue_insert_tail(&ctx->recv_ops, &op->recv_queue);
 	ngx_queue_insert_tail(&ctx->send_ops, &op->send_queue);
 
@@ -636,6 +672,7 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	kssl_header_st header;
 	kssl_operation_st operation;
 	enum ssl_private_key_result_t rc;
+	ngx_event_t *ev;
 
 	c = ngx_ssl_get_connection(ssl);
 
@@ -650,6 +687,13 @@ static enum ssl_private_key_result_t operation_complete(SSL *ssl, uint8_t *out, 
 	}
 
 	if (op->recv.last - op->recv.pos < (ssize_t)KSSL_HEADER_SIZE) {
+		ev = SSL_get_ex_data(ssl, g_ssl_exdata_timeout_index);
+		if (ev && ev->timedout) {
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "keyless operation timed out");
+
+			return ssl_private_key_failure;
+		}
+
 		return ssl_private_key_retry;
 	}
 
@@ -735,6 +779,22 @@ cleanup:
 	ngx_pfree(ctx->pool, op);
 
 	return rc;
+}
+
+static void operation_timeout_handler(ngx_event_t *ev)
+{
+	ngx_event_t *wev = ev->data;
+
+	ngx_post_event(wev, &ngx_posted_events);
+}
+
+static void cleanup_timer_handler(void *data)
+{
+	ngx_event_t *ev = data;
+
+	if (ev->timer_set) {
+		ngx_del_timer(ev);
+	}
 }
 
 static int key_type(SSL *ssl)
