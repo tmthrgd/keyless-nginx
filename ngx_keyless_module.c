@@ -48,13 +48,10 @@ typedef struct ngx_keyless_ctx_st {
 		size_t sig_len;
 	} key;
 
-	const struct sockaddr *address;
-	size_t address_len;
-
 	unsigned char ski[KSSL_SKI_SIZE];
 	unsigned char digest[KSSL_DIGEST_SIZE];
 
-	ngx_connection_t *c;
+	ngx_peer_connection_t pc;
 
 	ngx_atomic_uint_t id;
 
@@ -81,6 +78,8 @@ static int g_ssl_exdata_ctx_index = -1;
 static int g_ssl_ctx_exdata_ctx_index = -1;
 static int g_ssl_exdata_op_index = -1;
 static int g_ssl_exdata_timeout_index = -1;
+
+static const ngx_str_t ngx_keyless_name = ngx_string("");
 
 const SSL_PRIVATE_KEY_METHOD ngx_keyless_key_method = {
 	ngx_keyless_key_type,
@@ -175,8 +174,11 @@ NGX_KEYLESS_CTX *ngx_keyless_create(ngx_pool_t *pool, ngx_log_t *log, X509 *cert
 	ctx->pool = pool;
 	ctx->log = log;
 
-	ctx->address = address;
-	ctx->address_len = address_len;
+	ctx->pc.sockaddr = (struct sockaddr *)address;
+	ctx->pc.socklen = address_len;
+	ctx->pc.name = (ngx_str_t *)&ngx_keyless_name;
+
+	ctx->pc.type = SOCK_DGRAM;
 
 	ctx->key.type = EVP_PKEY_id(public_key);
 	ctx->key.sig_len = EVP_PKEY_size(public_key);
@@ -318,8 +320,8 @@ void ngx_keyless_free(NGX_KEYLESS_CTX *ctx)
 	ngx_keyless_op_st *op;
 	ngx_queue_t *q;
 
-	if (ctx->c) {
-		ngx_close_connection(ctx->c);
+	if (ctx->pc.connection) {
+		ngx_close_connection(ctx->pc.connection);
 	}
 
 	for (q = ngx_queue_head(&ctx->recv_ops);
@@ -466,10 +468,7 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 {
 	NGX_KEYLESS_CTX *ctx;
 	ngx_keyless_op_st *op = NULL;
-	ngx_int_t event;
-	ngx_event_t *rev, *wev;
-	ngx_socket_t s;
-	ngx_connection_t *ngx_conn, *c = NULL;
+	ngx_connection_t *ngx_conn;
 	const struct sockaddr_in *sin;
 #if NGX_HAVE_INET6
 	const struct sockaddr_in6 *sin6;
@@ -479,79 +478,31 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 	size_t length;
 	ngx_pool_cleanup_t *cln;
 	ngx_event_t *ev;
+	ngx_int_t rc;
 
 	ctx = ngx_keyless_ssl_get_ctx(ssl);
 	if (!ctx) {
 		goto error;
 	}
 
-	if (!ctx->c) {
-		s = socket(ctx->address->sa_family, SOCK_DGRAM, 0);
-		ngx_log_debug1(NGX_LOG_DEBUG_EVENT, ctx->log, 0, "UDP socket %d", s);
-		if (s == (ngx_socket_t)-1) {
-			ngx_log_error(NGX_LOG_ALERT, ctx->log, ngx_socket_errno,
-				ngx_socket_n " failed");
+	if (!ctx->pc.connection) {
+		ctx->pc.get = ngx_event_get_peer;
+		ctx->pc.log = ctx->log;
+		ctx->pc.log_error = NGX_ERROR_ERR;
+
+		rc = ngx_event_connect_peer(&ctx->pc);
+		if (rc == NGX_ERROR || rc == NGX_DECLINED) {
+			ngx_log_error(NGX_LOG_EMERG, ctx->log, 0,
+				"ngx_event_connect_peer failed");
 			goto error;
 		}
 
-		c = ngx_get_connection(s, ctx->log);
-		if (!c) {
-			if (ngx_close_socket(s) == -1) {
-				ngx_log_error(NGX_LOG_ALERT, ctx->log, ngx_socket_errno,
-					ngx_close_socket_n "failed");
-			}
+		ctx->pc.connection->data = ctx;
 
-			goto error;
-		}
+		ctx->pc.connection->pool = ctx->pool;
 
-		if (ngx_nonblocking(s) == -1) {
-			ngx_log_error(NGX_LOG_ALERT, ctx->log, ngx_socket_errno,
-				ngx_nonblocking_n " failed");
-			goto error;
-		}
-
-		c->data = ctx;
-
-		c->recv = ngx_udp_recv;
-		c->send = ngx_send;
-		c->recv_chain = ngx_recv_chain;
-		c->send_chain = ngx_send_chain;
-
-		rev = c->read;
-		wev = c->write;
-
-		c->log = ctx->log;
-		rev->log = c->log;
-		wev->log = c->log;
-		c->pool = ctx->pool;
-
-		c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
-
-		if (connect(s, ctx->address, ctx->address_len) == -1) {
-			ngx_log_error(NGX_LOG_CRIT, ctx->log, ngx_socket_errno,
-				"connect() failed");
-			goto error;
-		}
-
-		/* UDP sockets are always ready to write */
-		wev->ready = 1;
-
-		event = (ngx_event_flags & NGX_USE_CLEAR_EVENT) ?
-				/* kqueue, epoll */                 NGX_CLEAR_EVENT:
-				/* select, poll, /dev/poll */       NGX_LEVEL_EVENT;
-				/* eventport event type has no meaning: oneshot only */
-
-		if (ngx_add_event(rev, NGX_READ_EVENT, event) != NGX_OK) {
-			goto error;
-		}
-
-		rev->handler = ngx_keyless_socket_read_handler;
-		wev->handler = ngx_keyless_socket_write_handler;
-
-		ctx->c = c;
-
-		/* don't close the socket on error if we've gotten this far */
-		c = NULL;
+		ctx->pc.connection->read->handler = ngx_keyless_socket_read_handler;
+		ctx->pc.connection->write->handler = ngx_keyless_socket_write_handler;
 	}
 
 	ngx_conn = ngx_ssl_get_connection(ssl);
@@ -644,7 +595,7 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 
 	op->send.start = ngx_palloc(ctx->pool, length);
 	if (!op->send.start) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0,
+		ngx_log_error(NGX_LOG_ERR, ctx->log, 0,
 			"ngx_palloc failed to allocated recv buffer");
 		goto error;
 	}
@@ -692,15 +643,11 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 	ngx_queue_insert_tail(&ctx->recv_ops, &op->recv_queue);
 	ngx_queue_insert_tail(&ctx->send_ops, &op->send_queue);
 
-	ctx->c->write->handler(ctx->c->write);
+	ctx->pc.connection->write->handler(ctx->pc.connection->write);
 
 	return ssl_private_key_retry;
 
 error:
-	if (c) {
-		ngx_close_connection(c);
-	}
-
 	if (op) {
 		if (op->send.start) {
 			OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
