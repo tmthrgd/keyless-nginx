@@ -518,7 +518,10 @@ static enum ssl_private_key_result_t ngx_keyless_start_operation(kssl_opcode_et 
 	header.version_maj = KSSL_VERSION_MAJ;
 	header.version_min = KSSL_VERSION_MIN;
 
-	op->id = ngx_atomic_fetch_add(&ctx->id, 1);
+	do {
+		op->id = ngx_atomic_fetch_add(&ctx->id, 1);
+	} while (!op->id);
+
 	header.id = op->id;
 
 	kssl_zero_operation(&operation);
