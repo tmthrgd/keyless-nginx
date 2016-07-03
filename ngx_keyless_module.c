@@ -887,6 +887,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
 		size_t in_len)
 {
+	SSL *ssl;
 	ngx_http_keyless_srv_conf_t *conf;
 	ngx_http_keyless_op_t *op = NULL;
 	const struct sockaddr_in *sin;
@@ -899,7 +900,9 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 	ngx_pool_cleanup_t *cln;
 	ngx_int_t rc;
 
-	conf = SSL_CTX_get_ex_data(c->ssl->connection->ctx, g_ssl_ctx_exdata_conf_index);
+	ssl = c->ssl->connection;
+
+	conf = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_conf_index);
 	if (!conf) {
 		goto error;
 	}
@@ -946,8 +949,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 		operation.ski = conn->ski;
 	}
 
-	operation.sni = (const unsigned char *)SSL_get_servername(c->ssl->connection,
-		TLSEXT_NAMETYPE_host_name);
+	operation.sni = (const unsigned char *)SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 	if (operation.sni) {
 		operation.is_sni_set = 1;
 		operation.sni_len = ngx_strlen(operation.sni);
