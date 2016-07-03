@@ -102,6 +102,13 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t
 static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out);
 
+/* this is ngx_ssl_session_id_context from nginx-1.9.15/src/event/ngx_event_openssl.c */
+static ngx_int_t ngx_http_keyless_ssl_session_id_context(ngx_connection_t *c, ngx_str_t *sess_ctx,
+		X509 *cert);
+
+/* this is from nginx-1.9.15/src/http/modules/ngx_http_ssl_module.c */
+static ngx_str_t ngx_http_ssl_sess_id_ctx = ngx_string("HTTP");
+
 const SSL_PRIVATE_KEY_METHOD ngx_http_keyless_key_method = {
 	ngx_http_keyless_key_type,
 	ngx_http_keyless_key_max_signature_len,
@@ -450,8 +457,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SSL_certs_clear(c->ssl->connection);
 	SSL_set_private_key_method(c->ssl->connection, &ngx_http_keyless_key_method);
 
-	if (!SSL_use_certificate(c->ssl->connection, x509)
-		/*|| !SSL_set_session_id_context(c->ssl, sid_ctx, sid_ctx_length)*/) {
+	if (!SSL_use_certificate(c->ssl->connection, x509)) {
 		X509_free(x509);
 		goto error;
 	}
@@ -484,6 +490,10 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	if (conn->key.type != EVP_PKEY_RSA && conn->key.type != EVP_PKEY_EC) {
 		X509_free(x509);
+		goto error;
+	}
+
+	if (ngx_http_keyless_ssl_session_id_context(c, &ngx_http_ssl_sess_id_ctx, x509) != NGX_OK) {
 		goto error;
 	}
 
@@ -1075,4 +1085,87 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 	ngx_http_keyless_cleanup_operation(conn->op);
 
 	return rc;
+}
+
+/* this is ngx_ssl_session_id_context from nginx-1.9.15/src/event/ngx_event_openssl.c */
+static ngx_int_t ngx_http_keyless_ssl_session_id_context(ngx_connection_t *c, ngx_str_t *sess_ctx,
+		X509 *cert)
+{
+	int n, i;
+	X509_NAME *name;
+	EVP_MD_CTX *md;
+	unsigned int len;
+	STACK_OF(X509_NAME) *list;
+	u_char buf[EVP_MAX_MD_SIZE];
+
+	/*
+	 * Session ID context is set based on the string provided,
+	 * the server certificate, and the client CA list.
+	 */
+
+	md = EVP_MD_CTX_create();
+	if (md == NULL) {
+		return NGX_ERROR;
+	}
+
+	if (EVP_DigestInit_ex(md, EVP_sha1(), NULL) == 0) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestInit_ex() failed");
+		goto failed;
+	}
+
+	if (EVP_DigestUpdate(md, sess_ctx->data, sess_ctx->len) == 0) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestUpdate() failed");
+		goto failed;
+	}
+
+	if (X509_digest(cert, EVP_sha1(), buf, &len) == 0) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "X509_digest() failed");
+		goto failed;
+	}
+
+	if (EVP_DigestUpdate(md, buf, len) == 0) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestUpdate() failed");
+		goto failed;
+	}
+
+	list = SSL_get_client_CA_list(c->ssl->connection);
+
+	if (list != NULL) {
+		n = sk_X509_NAME_num(list);
+
+		for (i = 0; i < n; i++) {
+			name = sk_X509_NAME_value(list, i);
+
+			if (X509_NAME_digest(name, EVP_sha1(), buf, &len) == 0) {
+				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+					"X509_NAME_digest() failed");
+				goto failed;
+			}
+
+			if (EVP_DigestUpdate(md, buf, len) == 0) {
+				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+					"EVP_DigestUpdate() failed");
+				goto failed;
+			}
+		}
+	}
+
+	if (EVP_DigestFinal_ex(md, buf, &len) == 0) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestUpdate() failed");
+		goto failed;
+	}
+
+	EVP_MD_CTX_destroy(md);
+
+	if (SSL_set_session_id_context(c->ssl->connection, buf, len) == 0) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_set_session_id_context() failed");
+		return NGX_ERROR;
+	}
+
+	return NGX_OK;
+
+failed:
+	EVP_MD_CTX_destroy(md);
+
+	return NGX_ERROR;
 }
