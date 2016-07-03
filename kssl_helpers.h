@@ -39,6 +39,10 @@ typedef struct {
 	int is_server_ip_set;
 	unsigned short server_ip_len;
 	const unsigned char *server_ip;
+
+	int is_sig_algs_set;
+	unsigned short sig_algs_len;
+	const unsigned char *sig_algs;
 } kssl_operation_st;
 
 // Initialize a kssl_operation

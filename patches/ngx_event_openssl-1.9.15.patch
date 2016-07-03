@@ -1,68 +1,14 @@
 diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
 --- a/src/event/ngx_event_openssl.c	2016-04-20 01:32:38.000000000 +0930
-+++ b/src/event/ngx_event_openssl.c	2016-05-16 16:27:28.014484776 +0930
-@@ -13,6 +13,9 @@
- #define NGX_SSL_PASSWORD_BUFFER_SIZE  4096
++++ b/src/event/ngx_event_openssl.c	2016-07-03 18:16:00.767431012 +0930
+@@ -1221,6 +1221,21 @@ ngx_ssl_handshake(ngx_connection_t *c)
+         return NGX_AGAIN;
+     }
  
- 
-+#include <ngx_keyless_module.h>
++    if (sslerr == SSL_ERROR_WANT_PRIVATE_KEY_OPERATION || sslerr == SSL_ERROR_WANT_X509_LOOKUP) {
++        c->read->handler = ngx_ssl_handshake_handler;
++        c->write->handler = ngx_ssl_handshake_handler;
 +
-+
- typedef struct {
-     ngx_uint_t  engine;   /* unsigned  engine:1; */
- } ngx_openssl_conf_t;
-@@ -399,6 +402,47 @@ ngx_ssl_certificate(ngx_conf_t *cf, ngx_
- 
-     BIO_free(bio);
- 
-+    if (ngx_strncmp(key->data, "keyless:", sizeof("keyless:") - 1) == 0) {
-+
-+        u_char *addr;
-+        size_t addr_len;
-+        NGX_KEYLESS_CTX *ctx;
-+        ngx_pool_cleanup_t *cln;
-+
-+        x509 = SSL_CTX_get_ex_data(ssl->ctx, ngx_ssl_certificate_index);
-+
-+        addr = key->data + sizeof("keyless:") - 1;
-+        addr_len = key->len - sizeof("keyless:") + 1;
-+
-+        ctx = ngx_keyless_parse_and_create(cf->cycle->pool, cf->cycle->log,
-+                                       x509, (const char *)addr, addr_len);
-+
-+        if (ctx == NULL) {
-+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
-+                          "ngx_keyless_parse_and_create(\"%s\") failed", addr);
-+            return NGX_ERROR;
-+        }
-+
-+        if (ngx_keyless_attach_ssl_ctx(ssl->ctx, ctx) == 0) {
-+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0,
-+                          "ngx_keyless_attach_ssl_ctx(\"%s\") failed", addr);
-+            ngx_keyless_free(ctx);
-+            return NGX_ERROR;
-+        }
-+
-+        cln = ngx_pool_cleanup_add(cf->cycle->pool, 0);
-+        if (!cln) {
-+            ngx_ssl_error(NGX_LOG_EMERG, ssl->log, 0, "ngx_pool_cleanup_add");
-+            ngx_keyless_free(ctx);
-+            return NGX_ERROR;
-+        }
-+
-+        cln->handler = (ngx_pool_cleanup_pt)ngx_keyless_free;
-+        cln->data = ctx;
-+
-+        return NGX_OK;
-+    }
-+
-     if (ngx_strncmp(key->data, "engine:", sizeof("engine:") - 1) == 0) {
- 
- #ifndef OPENSSL_NO_ENGINE
-@@ -1210,6 +1254,21 @@ ngx_ssl_handshake(ngx_connection_t *c)
-         c->read->handler = ngx_ssl_handshake_handler;
-         c->write->handler = ngx_ssl_handshake_handler;
- 
 +        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
 +            return NGX_ERROR;
 +        }
@@ -74,10 +20,6 @@ diff -rupN a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
 +        return NGX_AGAIN;
 +    }
 +
-+    if (sslerr == SSL_ERROR_WANT_PRIVATE_KEY_OPERATION) {
-+        c->read->handler = ngx_ssl_handshake_handler;
-+        c->write->handler = ngx_ssl_handshake_handler;
-+
-         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
-             return NGX_ERROR;
-         }
+     err = (sslerr == SSL_ERROR_SYSCALL) ? ngx_errno : 0;
+ 
+     c->ssl->no_wait_shutdown = 1;

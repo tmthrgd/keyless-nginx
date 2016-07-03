@@ -1,22 +1,19 @@
-ngx_addon_name=ngx_keyless
+ngx_addon_name=ngx_http_keyless
 
 if [ -n "$ngx_module_link" ]; then
 	# nginx-1.9.11+
-	ngx_module_type=CORE
-	ngx_module_name=ngx_keyless_module
+	ngx_module_type=HTTP
+	ngx_module_name=ngx_http_keyless_module
 	ngx_module_incs=$ngx_addon_dir
-	ngx_module_deps="$ngx_addon_dir/ngx_keyless_module.h $ngx_addon_dir/kssl.h $ngx_addon_dir/kssl_helpers.h"
+	ngx_module_deps="$ngx_addon_dir/kssl.h $ngx_addon_dir/kssl_helpers.h"
 	ngx_module_srcs="$ngx_addon_dir/ngx_keyless_module.c $ngx_addon_dir/kssl_helpers.c"
 	ngx_module_libs=
 
 	. auto/module
 else
-	HTTP_MODULES="$HTTP_MODULES ngx_keyless_module"
-	NGX_ADDON_DEPS="$NGX_ADDON_DEPS $ngx_addon_dir/ngx_keyless_module.h $ngx_addon_dir/kssl.h $ngx_addon_dir/kssl_helpers.h"
+	HTTP_MODULES="$HTTP_MODULES ngx_http_keyless_module"
+	NGX_ADDON_DEPS="$ngx_addon_dir/kssl.h $ngx_addon_dir/kssl_helpers.h"
 	NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_keyless_module.c $ngx_addon_dir/kssl_helpers.c"
 fi
-
-# for keyless-nginx.patch
-CORE_INCS="$CORE_INCS $ngx_addon_dir"
 
 # -*- mode: shell;-*-

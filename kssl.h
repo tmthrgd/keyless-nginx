@@ -27,6 +27,7 @@ typedef enum {
 	KSSL_TAG_CLIENT_IP = 0x03, // Client IP (4 bytes for IPv4, 16 for IPv6)
 	KSSL_TAG_SKI       = 0x04, // Public key SKI
 	KSSL_TAG_SERVER_IP = 0x05, // Server IP (4 bytes for IPv4, 16 for IPv6)
+	KSSL_TAG_SIG_ALGS  = 0x06, // Client SigAlgs (2n bytes)
 	KSSL_TAG_OPCODE    = 0x11, // Requested operation (one of KSSL_OP_*)
 	KSSL_TAG_PAYLOAD   = 0x12, // Payload
 
@@ -66,6 +67,8 @@ typedef enum {
 	KSSL_OP_ECDSA_SIGN_SHA384  = 0x16,
 	KSSL_OP_ECDSA_SIGN_SHA512  = 0x17,
 
+	KSSL_OP_CERTIFICATE_REQUEST = 0x20,
+
 	// A test message which will be echoed with its payload with the
 	// operation changed to OP_PONG
 	KSSL_OP_PING = 0xF1,
@@ -89,7 +92,8 @@ typedef enum {
 	KSSL_ERROR_BAD_OPCODE        = 0x05,
 	KSSL_ERROR_UNEXPECTED_OPCODE = 0x06,
 	KSSL_ERROR_FORMAT            = 0x07,
-	KSSL_ERROR_INTERNAL          = 0x08
+	KSSL_ERROR_INTERNAL          = 0x08,
+	KSSL_ERROR_CERT_NOT_FOUND    = 0x09,
 } kssl_error_code_et;
 
 #endif /* INCLUDED_KSSL */
