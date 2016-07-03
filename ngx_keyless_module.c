@@ -822,6 +822,12 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				"remove certificate from cache: \"%*s\"",
 				ngx_hex_dump(buf, min_cert->key, SHA256_DIGEST_LENGTH) - buf, buf);
 
+			for (i = 0; i < 8 && min_cert->chain[i]; i++) {
+				X509_free(min_cert->chain[i]);
+			}
+
+			X509_free(min_cert->leaf);
+
 			ngx_queue_remove(&min_cert->queue);
 			ngx_rbtree_delete(&cache->session_rbtree, &min_cert->node);
 			ngx_slab_free_locked(shpool, min_cert);
