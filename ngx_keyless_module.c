@@ -480,13 +480,9 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		goto error;
 	}
 
-	switch (conn->key.type) {
-		case EVP_PKEY_RSA:
-		case EVP_PKEY_EC:
-			break;
-		default:
-			X509_free(x509);
-			goto error;
+	if (conn->key.type != EVP_PKEY_RSA && conn->key.type != EVP_PKEY_EC) {
+		X509_free(x509);
+		goto error;
 	}
 
 	X509_free(x509);
