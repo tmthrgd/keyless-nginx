@@ -69,7 +69,6 @@ typedef struct {
 	} key;
 
 	unsigned char ski[KSSL_SKI_SIZE];
-	unsigned char digest[KSSL_DIGEST_SIZE];
 } ngx_http_keyless_conn_t;
 
 static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
@@ -411,10 +410,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	size_t payload_len;
 	BIO *bio = NULL;
 	X509 *x509;
-	char *hex = NULL;
 	EVP_PKEY *public_key = NULL;
 	u_long n;
-	size_t i;
 
 	c = ngx_ssl_get_connection(ssl_conn);
 
@@ -485,34 +482,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	switch (conn->key.type) {
 		case EVP_PKEY_RSA:
-			if (!x509->cert_info->key->pkey
-				|| !x509->cert_info->key->pkey->pkey.rsa
-				|| !x509->cert_info->key->pkey->pkey.rsa->n) {
-				ngx_log_error(NGX_LOG_EMERG, c->log, 0,
-					"RSA certificate does not contain N");
-				X509_free(x509);
-				goto error;
-			}
-
-			hex = BN_bn2hex(x509->cert_info->key->pkey->pkey.rsa->n);
-			if (!hex) {
-				ngx_log_error(NGX_LOG_EMERG, c->log, 0, "BN_bn2hex failed");
-				X509_free(x509);
-				goto error;
-			}
-
-			for (i = 0; hex[i]; i++) {
-				hex[i] = ngx_toupper(hex[i]);
-			}
-
-			if (!SHA256((const uint8_t *)hex, i/* = ngx_strlen(hex)*/, conn->digest)) {
-				ngx_log_error(NGX_LOG_EMERG, c->log, 0, "SHA256 failed");
-				X509_free(x509);
-				goto error;
-			}
-
-			OPENSSL_free(hex); hex = NULL;
-			break;
 		case EVP_PKEY_EC:
 			break;
 		default:
@@ -551,10 +520,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	return 1;
 
 error:
-	if (hex) {
-		OPENSSL_free(hex);
-	}
-
 	if (public_key) {
 		EVP_PKEY_free(public_key);
 	}
@@ -629,11 +594,6 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 	if (conn->key.type) {
 		operation.is_ski_set = 1;
 		operation.ski = conn->ski;
-	}
-
-	if (conn->key.type == EVP_PKEY_RSA) {
-		operation.is_digest_set = 1;
-		operation.digest = conn->digest;
 	}
 
 	operation.sni = (const unsigned char *)SSL_get_servername(c->ssl->connection,
