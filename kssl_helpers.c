@@ -439,6 +439,11 @@ int kssl_parse_message_payload(unsigned char *payload,
 				operation->is_server_ip_set = 1;
 				break;
 			case KSSL_TAG_SIG_ALGS:
+				// Skip over malformed tags
+				if (temp_item.length % 2 != 0) {
+					continue;
+				}
+
 				operation->sig_algs_len = temp_item.length;
 				operation->sig_algs = temp_item.data;
 				operation->is_sig_algs_set = 1;
