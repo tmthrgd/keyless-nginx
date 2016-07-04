@@ -520,6 +520,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	} else if (has_server_name) {
 		*sig_algs_end++ = TLSEXT_hash_sha256;
 		*sig_algs_end++ = TLSEXT_signature_rsa;
+		*sig_algs_end++ = TLSEXT_hash_sha1;
+		*sig_algs_end++ = TLSEXT_signature_rsa;
 	} else {
 		*sig_algs_end++ = TLSEXT_hash_sha1;
 		*sig_algs_end++ = TLSEXT_signature_rsa;
