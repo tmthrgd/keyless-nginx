@@ -354,7 +354,8 @@ static ngx_int_t ngx_http_keyless_cache_init(ngx_shm_zone_t *shm_zone, void *dat
 	shpool->data = cache;
 	shm_zone->data = cache;
 
-	ngx_rbtree_init(&cache->session_rbtree, &cache->sentinel, ngx_http_keyless_rbtree_insert_value);
+	ngx_rbtree_init(&cache->session_rbtree, &cache->sentinel,
+		ngx_http_keyless_rbtree_insert_value);
 	ngx_queue_init(&cache->expire_queue);
 
 	shpool->log_nomem = 0;
@@ -447,8 +448,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		}
 	}
 
-	if (SSL_early_callback_ctx_extension_get(ctx,
-			TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
+	if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_signature_algorithms,
+			&extension_data, &extension_len)) {
 		CBS_init(&extension, extension_data, extension_len);
 
 		if (!CBS_get_u16_length_prefixed(&extension, &sig_algs)
@@ -644,7 +645,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 			certificate = (ngx_http_keyless_cached_certificate_t *)node;
 
-			rc = ngx_memn2cmp(key, certificate->key, SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
+			rc = ngx_memn2cmp(key, certificate->key, SHA256_DIGEST_LENGTH,
+				SHA256_DIGEST_LENGTH);
 			if (rc < 0) {
 				node = node->left;
 				continue;
@@ -739,7 +741,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		|| !leaf->cert_info->key
 		|| !leaf->cert_info->key->public_key
 		|| !leaf->cert_info->key->public_key->length) {
-		ngx_log_error(NGX_LOG_EMERG, c->log, 0, "certificate does not contain valid public key");
+		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
+			"certificate does not contain valid public key");
 		X509_free(leaf);
 		goto error;
 	}
@@ -769,7 +772,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		if (!x509) {
 			n = ERR_peek_last_error();
 
-			if (ERR_GET_LIB(n) == ERR_LIB_PEM && ERR_GET_REASON(n) == PEM_R_NO_START_LINE) {
+			if (ERR_GET_LIB(n) == ERR_LIB_PEM && ERR_GET_REASON(n)
+					== PEM_R_NO_START_LINE) {
 				/* end of file */
 				ERR_clear_error();
 				break;
