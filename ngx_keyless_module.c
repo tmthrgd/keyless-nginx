@@ -449,7 +449,7 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| CBS_len(&sig_algs) == 0
 			|| CBS_len(&extension) != 0
 			|| CBS_len(&sig_algs) % 2 != 0
-			|| CBS_len(&sig_algs) > sizeof(tmp_sig_algs) - 4
+			|| CBS_len(&sig_algs) > sizeof(tmp_sig_algs) - 8
 				- (sig_algs_end - tmp_sig_algs)) {
 			goto cleanup;
 		}
@@ -469,9 +469,7 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			if (!CBS_get_u16_length_prefixed(&extension, &ec_curves)
 				|| CBS_len(&ec_curves) == 0
 				|| CBS_len(&extension) != 0
-				|| CBS_len(&ec_curves) % 2 != 0
-				|| CBS_len(&ec_curves) > sizeof(tmp_sig_algs) - 2
-					- (sig_algs_end - tmp_sig_algs)) {
+				|| CBS_len(&ec_curves) % 2 != 0) {
 				goto cleanup;
 			}
 
@@ -487,6 +485,12 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 						*sig_algs_end++ = NGX_KEYLESS_SSL_HASH_EC_CURVES;
 						*sig_algs_end++ = (unsigned char)ec_curve;
 						break;
+					default:
+						continue;
+				}
+
+				if (sig_algs_end >= tmp_sig_algs + sizeof(tmp_sig_algs)) {
+					goto cleanup;
 				}
 			}
 		} else {
