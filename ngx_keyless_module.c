@@ -32,6 +32,10 @@
 #define NGX_KEYLESS_SSL_HASH_CIPHER    224
 #define NGX_KEYLESS_SSL_HASH_EC_CURVES 225
 
+#ifndef TLSEXT_TYPE_elliptic_curves
+#	define TLSEXT_TYPE_elliptic_curves TLSEXT_TYPE_supported_groups
+#endif
+
 typedef struct {
 	ngx_str_t address;
 	ngx_str_t shm_name;
