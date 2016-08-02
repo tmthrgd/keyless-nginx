@@ -784,16 +784,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			goto error;
 	        }
 
-		if (i < 8) {
-			chain[i] = x509;
-		} else if (i == 8) {
-			for (i = 0; i < 8; i++) {
-				X509_free(chain[i]);
-			}
-
-			dont_cache = 1;
-		}
-
 		if (!SSL_add1_chain_cert(ssl, x509)) {
 			X509_free(x509);
 
@@ -802,7 +792,16 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			goto error;
 		}
 
-		if (dont_cache) {
+		if (!conf->shm_zone || dont_cache) {
+			X509_free(x509);
+		} else if (i < 8) {
+			chain[i] = x509;
+		} else if (i == 8) {
+			for (i = 0; i < 8; i++) {
+				X509_free(chain[i]);
+			}
+
+			dont_cache = 1;
 			X509_free(x509);
 		}
 	}
