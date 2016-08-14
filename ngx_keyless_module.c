@@ -813,9 +813,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	if (conf->shm_zone && !dont_cache) {
 		ngx_shmtx_lock(&shpool->mutex);
 
-		node = cache->session_rbtree.root;
-		sentinel = cache->session_rbtree.sentinel;
-
 		certificate = ngx_slab_alloc_locked(shpool,
 			sizeof(ngx_http_keyless_cached_certificate_t));
 		if (!certificate) {
