@@ -245,10 +245,6 @@ size_t kssl_flatten_operation(kssl_header_st *header,
 		local_req_len += KSSL_ITEM_HEADER_SIZE + operation->server_ip_len;
 	}
 
-	if (operation->is_sig_algs_set) {
-		local_req_len += KSSL_ITEM_HEADER_SIZE + operation->sig_algs_len;
-	}
-
 	// The operation will always be padded to KSSL_PAD_TO +
 	// KSSL_ITEM_HEADER_SIZE bytes
 
@@ -318,12 +314,6 @@ size_t kssl_flatten_operation(kssl_header_st *header,
 		}
 	}
 
-	if (operation->is_sig_algs_set) {
-		if (!kssl_flatten_item(KSSL_TAG_SIG_ALGS, operation->sig_algs, operation->sig_algs_len, local_req, &offset)) {
-			return 0;
-		}
-	}
-
 	if (!kssl_add_padding(padding_size, local_req, &offset)) {
 		return 0;
 	}
@@ -358,10 +348,6 @@ void kssl_zero_operation(kssl_operation_st *operation) {
 		operation->is_server_ip_set = 0;
 		operation->server_ip = NULL;
 		operation->server_ip_len = 0;
-
-		operation->is_sig_algs_set = 0;
-		operation->sig_algs = NULL;
-		operation->sig_algs_len = 0;
 	}
 }
 
@@ -438,16 +424,6 @@ int kssl_parse_message_payload(unsigned char *payload,
 				operation->server_ip = temp_item.data;
 				operation->is_server_ip_set = 1;
 				break;
-			case KSSL_TAG_SIG_ALGS:
-				// Skip over malformed tags
-				if (temp_item.length % 2 != 0) {
-					continue;
-				}
-
-				operation->sig_algs_len = temp_item.length;
-				operation->sig_algs = temp_item.data;
-				operation->is_sig_algs_set = 1;
-				break;
 			case KSSL_TAG_PADDING:
 				break;
 			default:
@@ -502,8 +478,8 @@ const char *kssl_op_string(unsigned char op) {
 			return "KSSL_OP_ECDSA_SIGN_SHA384";
 		case KSSL_OP_ECDSA_SIGN_SHA512:
 			return "KSSL_OP_ECDSA_SIGN_SHA512";
-		case KSSL_OP_CERTIFICATE_REQUEST:
-			return "KSSL_OP_CERTIFICATE_REQUEST";
+		case KSSL_OP_GET_CERTIFICATE:
+			return "KSSL_OP_GET_CERTIFICATE";
 	}
 
 	return "UNKNOWN";

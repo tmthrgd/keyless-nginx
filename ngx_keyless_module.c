@@ -29,12 +29,15 @@
 #	define SSL_CURVE_SECP521R1 25
 #endif /* SSL_CURVE_SECP256R1 */
 
-#define NGX_KEYLESS_SSL_HASH_CIPHER    224
-#define NGX_KEYLESS_SSL_HASH_EC_CURVES 225
+#define NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS 1
+#define NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS     2
+#define NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER         3
 
 #ifndef TLSEXT_TYPE_elliptic_curves
 #	define TLSEXT_TYPE_elliptic_curves TLSEXT_TYPE_supported_groups
 #endif
+
+#define NGX_HTTP_KEYLESS_WRITE_WORD(b, v) *(unsigned short*)(b) = htons((v)); (b) += sizeof(unsigned short);
 
 typedef struct {
 	ngx_str_t address;
@@ -403,10 +406,10 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callback_ctx *ctx)
 {
 	const uint8_t *extension_data;
-	size_t extension_len, sig_algs_len;
+	size_t extension_len, sig_algs_len, ec_curves_len;
 	CBS extension, cipher_suites, server_name_list, host_name, sig_algs, ec_curves;
 	int has_server_name;
-	uint16_t cipher_suite, ec_curve;
+	uint16_t cipher_suite;
 	uint8_t name_type;
 	const SSL_CIPHER *cipher;
 	char *server_name = NULL;
@@ -456,12 +459,15 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| CBS_len(&sig_algs) == 0
 			|| CBS_len(&extension) != 0
 			|| CBS_len(&sig_algs) % 2 != 0
-			|| CBS_len(&sig_algs) > sizeof(tmp_sig_algs) - 8
+			|| CBS_len(&sig_algs) > sizeof(tmp_sig_algs) - 3 - 5 - 4
 				- (sig_algs_end - tmp_sig_algs)) {
 			goto cleanup;
 		}
 
 		sig_algs_len = CBS_len(&sig_algs);
+
+		*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS;
+		NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, sig_algs_len);
 
 		if (!CBS_copy_bytes(&sig_algs, sig_algs_end, sig_algs_len)) {
 			goto cleanup;
@@ -476,36 +482,29 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			if (!CBS_get_u16_length_prefixed(&extension, &ec_curves)
 				|| CBS_len(&ec_curves) == 0
 				|| CBS_len(&extension) != 0
-				|| CBS_len(&ec_curves) % 2 != 0) {
+				|| CBS_len(&ec_curves) % 2 != 0
+				|| CBS_len(&ec_curves) > sizeof(tmp_sig_algs) - 3 - 4
+					- (sig_algs_end - tmp_sig_algs)) {
 				goto cleanup;
 			}
 
-			while (CBS_len(&ec_curves) != 0) {
-				if (!CBS_get_u16(&ec_curves, &ec_curve)) {
-					goto cleanup;
-				}
+			ec_curves_len = CBS_len(&ec_curves);
 
-				switch (ec_curve) {
-					case SSL_CURVE_SECP256R1:
-					case SSL_CURVE_SECP384R1:
-					case SSL_CURVE_SECP521R1:
-						*sig_algs_end++ = NGX_KEYLESS_SSL_HASH_EC_CURVES;
-						*sig_algs_end++ = (unsigned char)ec_curve;
-						break;
-					default:
-						continue;
-				}
+			*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS;
+			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, ec_curves_len);
 
-				if (sig_algs_end >= tmp_sig_algs + sizeof(tmp_sig_algs)) {
-					goto cleanup;
-				}
+			if (!CBS_copy_bytes(&ec_curves, sig_algs_end, ec_curves_len)) {
+				goto cleanup;
 			}
+
+			sig_algs_end += ec_curves_len;
 		} else {
 			/* Clients are not required to send a supported_curves extension. In this
 			 * case, the server is free to pick any curve it likes. See RFC 4492,
 			 * section 4, paragraph 3. */
-			*sig_algs_end++ = NGX_KEYLESS_SSL_HASH_EC_CURVES;
-			*sig_algs_end++ = SSL_CURVE_SECP256R1;
+			*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS;
+			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 2);
+			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, SSL_CURVE_SECP256R1);
 		}
 
 		CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
@@ -519,17 +518,22 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			if (cipher && SSL_CIPHER_is_ECDSA(cipher)
 				&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
 					NULL, cipher)) {
-				*sig_algs_end++ = NGX_KEYLESS_SSL_HASH_CIPHER;
-				*sig_algs_end++ = TLSEXT_signature_ecdsa;
+				*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER;
+				NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 1);
+				*sig_algs_end++ = 0xff;
 				break;
 			}
 		}
 	} else if (has_server_name) {
+		*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS;
+		NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 4);
 		*sig_algs_end++ = TLSEXT_hash_sha256;
 		*sig_algs_end++ = TLSEXT_signature_rsa;
 		*sig_algs_end++ = TLSEXT_hash_sha1;
 		*sig_algs_end++ = TLSEXT_signature_rsa;
 	} else {
+		*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS;
+		NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 2);
 		*sig_algs_end++ = TLSEXT_hash_sha1;
 		*sig_algs_end++ = TLSEXT_signature_rsa;
 	}
@@ -545,11 +549,11 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		goto cleanup;
 	}
 
-	conn->op = ngx_http_keyless_start_operation(KSSL_OP_CERTIFICATE_REQUEST, c, conn,
+	conn->op = ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE, c, conn,
 		tmp_sig_algs, sig_algs_end - tmp_sig_algs);
 	if (!conn->op) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_start_operation(KSSL_OP_CERTIFICATE_REQUEST) failed");
+			"ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE) failed");
 		goto cleanup;
 	}
 
@@ -975,15 +979,9 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 		operation.sni_len = ngx_strlen(operation.sni);
 	}
 
-	if (opcode == KSSL_OP_CERTIFICATE_REQUEST) {
-		operation.is_sig_algs_set = 1;
-		operation.sig_algs_len = in_len;
-		operation.sig_algs = in;
-	} else {
-		operation.is_payload_set = 1;
-		operation.payload_len = in_len;
-		operation.payload = in;
-	}
+	operation.is_payload_set = 1;
+	operation.payload_len = in_len;
+	operation.payload = in;
 
 	switch (c->sockaddr->sa_family) {
 #if NGX_HAVE_INET6
@@ -1148,7 +1146,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		case KSSL_OP_ECDSA_SIGN_SHA256:
 		case KSSL_OP_ECDSA_SIGN_SHA384:
 		case KSSL_OP_ECDSA_SIGN_SHA512:
-		case KSSL_OP_CERTIFICATE_REQUEST:
+		case KSSL_OP_GET_CERTIFICATE:
 		case KSSL_OP_PING:
 		case KSSL_OP_PONG:
 		case KSSL_OP_ACTIVATE:
