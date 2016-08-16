@@ -738,7 +738,21 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		goto error;
 	}
 
-	conn->key.type = EVP_PKEY_id(public_key);
+	switch (EVP_PKEY_id(public_key)) {
+	case EVP_PKEY_RSA:
+		conn->key.type = NID_rsaEncryption;
+		break;
+	case EVP_PKEY_EC:
+		conn->key.type = EC_GROUP_get_curve_name(EC_KEY_get0_group(EVP_PKEY_get0_EC_KEY(
+			public_key)));
+		break;
+	default:
+		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
+			"certificate does not contain a supported key type");
+		X509_free(leaf);
+		goto error;
+	}
+
 	conn->key.sig_len = EVP_PKEY_size(public_key);
 
 	if (!leaf->cert_info
@@ -754,11 +768,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	if (!SHA1(leaf->cert_info->key->public_key->data,
 			leaf->cert_info->key->public_key->length, conn->ski)) {
 		ngx_log_error(NGX_LOG_EMERG, c->log, 0, "SHA1 failed");
-		X509_free(leaf);
-		goto error;
-	}
-
-	if (conn->key.type != EVP_PKEY_RSA && conn->key.type != EVP_PKEY_EC) {
 		X509_free(leaf);
 		goto error;
 	}
@@ -1374,7 +1383,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign_digest(ngx_ssl_co
 		return ssl_private_key_failure;
 	}
 
-	if (conn->key.type == EVP_PKEY_EC) {
+	if (conn->key.type != NID_rsaEncryption) {
 		opcode |= KSSL_OP_ECDSA_MASK;
 	}
 
