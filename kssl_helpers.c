@@ -466,6 +466,12 @@ const char *kssl_op_string(unsigned char op) {
 			return "KSSL_OP_RSA_SIGN_SHA384";
 		case KSSL_OP_RSA_SIGN_SHA512:
 			return "KSSL_OP_RSA_SIGN_SHA512";
+		case KSSL_OP_RSA_PSS_SIGN_SHA256:
+			return "KSSL_OP_RSA_PSS_SIGN_SHA256";
+		case KSSL_OP_RSA_PSS_SIGN_SHA384:
+			return "KSSL_OP_RSA_PSS_SIGN_SHA384";
+		case KSSL_OP_RSA_PSS_SIGN_SHA512:
+			return "KSSL_OP_RSA_PSS_SIGN_SHA512";
 		case KSSL_OP_ECDSA_SIGN_MD5SHA1:
 			return "KSSL_OP_ECDSA_SIGN_MD5SHA1";
 		case KSSL_OP_ECDSA_SIGN_SHA1:

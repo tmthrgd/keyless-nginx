@@ -137,9 +137,9 @@ static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
 static int ngx_http_keyless_key_type(ngx_ssl_conn_t *ssl_conn);
 static size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn);
-static enum ssl_private_key_result_t ngx_http_keyless_key_sign_digest(ngx_ssl_conn_t *ssl_conn,
-		uint8_t *out, size_t *out_len, size_t max_out, const EVP_MD *md, const uint8_t *in,
-		size_t in_len);
+static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
+		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
+		const uint8_t *in, size_t in_len);
 static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
 static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_t *ssl_conn,
@@ -155,8 +155,8 @@ static ngx_str_t ngx_http_ssl_sess_id_ctx = ngx_string("HTTP");
 const SSL_PRIVATE_KEY_METHOD ngx_http_keyless_key_method = {
 	ngx_http_keyless_key_type,
 	ngx_http_keyless_key_max_signature_len,
+	ngx_http_keyless_key_sign,
 	NULL,
-	ngx_http_keyless_key_sign_digest,
 	ngx_http_keyless_key_decrypt,
 	ngx_http_keyless_key_complete,
 };
@@ -1345,35 +1345,61 @@ static size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn)
 	return conn->key.sig_len;
 }
 
-static enum ssl_private_key_result_t ngx_http_keyless_key_sign_digest(ngx_ssl_conn_t *ssl_conn,
-		uint8_t *out, size_t *out_len, size_t max_out, const EVP_MD *md, const uint8_t *in,
-		size_t in_len)
+static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
+		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
+		const uint8_t *in, size_t in_len)
 {
 	kssl_opcode_et opcode;
 	ngx_connection_t *c;
 	ngx_http_keyless_conn_t *conn;
+	const EVP_MD *md;
+	uint8_t hash[EVP_MAX_MD_SIZE];
+	unsigned hash_len;
 
-	switch (EVP_MD_type(md)) {
-		case NID_sha1:
-			opcode = KSSL_OP_RSA_SIGN_SHA1;
-			break;
-		case NID_sha224:
-			opcode = KSSL_OP_RSA_SIGN_SHA224;
-			break;
-		case NID_sha256:
-			opcode = KSSL_OP_RSA_SIGN_SHA256;
-			break;
-		case NID_sha384:
-			opcode = KSSL_OP_RSA_SIGN_SHA384;
-			break;
-		case NID_sha512:
-			opcode = KSSL_OP_RSA_SIGN_SHA512;
-			break;
-		case NID_md5_sha1:
+	switch (signature_algorithm) {
+		case SSL_SIGN_RSA_PKCS1_MD5_SHA1:
 			opcode = KSSL_OP_RSA_SIGN_MD5SHA1;
+			md = EVP_md5_sha1();
+			break;
+		case SSL_SIGN_RSA_PKCS1_SHA1:
+		case SSL_SIGN_ECDSA_SHA1:
+			opcode = KSSL_OP_RSA_SIGN_SHA1;
+			md = EVP_sha1();
+			break;
+		case SSL_SIGN_RSA_PKCS1_SHA256:
+		case SSL_SIGN_ECDSA_SECP256R1_SHA256:
+		case SSL_SIGN_RSA_PSS_SHA256:
+			opcode = KSSL_OP_RSA_SIGN_SHA256;
+			md = EVP_sha256();
+			break;
+		case SSL_SIGN_RSA_PKCS1_SHA384:
+		case SSL_SIGN_ECDSA_SECP384R1_SHA384:
+		case SSL_SIGN_RSA_PSS_SHA384:
+			opcode = KSSL_OP_RSA_SIGN_SHA384;
+			md = EVP_sha384();
+			break;
+		case SSL_SIGN_RSA_PKCS1_SHA512:
+		case SSL_SIGN_ECDSA_SECP521R1_SHA512:
+		case SSL_SIGN_RSA_PSS_SHA512:
+			opcode = KSSL_OP_RSA_SIGN_SHA512;
+			md = EVP_sha512();
 			break;
 		default:
 			return ssl_private_key_failure;
+	}
+
+	switch (signature_algorithm) {
+		case SSL_SIGN_ECDSA_SHA1:
+		case SSL_SIGN_ECDSA_SECP256R1_SHA256:
+		case SSL_SIGN_ECDSA_SECP384R1_SHA384:
+		case SSL_SIGN_ECDSA_SECP521R1_SHA512:
+			opcode |= KSSL_OP_ECDSA_MASK;
+			break;
+		case SSL_SIGN_RSA_PSS_SHA256:
+		case SSL_SIGN_RSA_PSS_SHA384:
+		case SSL_SIGN_RSA_PSS_SHA512:
+			opcode |= KSSL_OP_RSA_PSS_MASK;
+			break;
 	}
 
 	c = ngx_ssl_get_connection(ssl_conn);
@@ -1383,11 +1409,11 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign_digest(ngx_ssl_co
 		return ssl_private_key_failure;
 	}
 
-	if (conn->key.type != NID_rsaEncryption) {
-		opcode |= KSSL_OP_ECDSA_MASK;
+	if (!EVP_Digest(in, in_len, hash, &hash_len, md, NULL)) {
+		return ssl_private_key_failure;
 	}
 
-	conn->op = ngx_http_keyless_start_operation(opcode, c, conn, in, in_len);
+	conn->op = ngx_http_keyless_start_operation(opcode, c, conn, hash, hash_len);
 	if (!conn->op) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 			"ngx_http_keyless_start_operation(%s) failed", kssl_op_string(opcode));

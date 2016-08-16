@@ -57,6 +57,12 @@ typedef enum {
 	KSSL_OP_RSA_SIGN_SHA384  = 0x06,
 	KSSL_OP_RSA_SIGN_SHA512  = 0x07,
 
+	// Sign data using RSA-PSS
+#define KSSL_OP_RSA_PSS_MASK          0x30
+	KSSL_OP_RSA_PSS_SIGN_SHA256 = 0x35,
+	KSSL_OP_RSA_PSS_SIGN_SHA384 = 0x36,
+	KSSL_OP_RSA_PSS_SIGN_SHA512 = 0x37,
+
 	// Sign data using ECDSA
 #define KSSL_OP_ECDSA_MASK           0x10
 	KSSL_OP_ECDSA_SIGN_MD5SHA1 = 0x12,
