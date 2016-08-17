@@ -100,8 +100,7 @@ typedef struct {
 
 	unsigned char key[SHA256_DIGEST_LENGTH];
 
-	X509 *leaf;
-	X509 *chain[8];
+	STACK_OF(X509) *chain;
 
 	int type;
 	size_t sig_len;
@@ -577,7 +576,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	const unsigned char *payload;
 	size_t payload_len;
 	BIO *bio = NULL;
-	X509 *leaf, *x509;
+	X509 *leaf = NULL, *x509;
 	EVP_PKEY *public_key = NULL;
 	u_long n;
 	ngx_slab_pool_t *shpool = NULL /* 'may be used uninitialized' warning */;
@@ -590,8 +589,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 #if NGX_DEBUG
 	u_char buf[SHA256_DIGEST_LENGTH*2];
 #endif /* NGX_DEBUG */
-	X509 *chain[8];
-	int dont_cache;
+	STACK_OF(X509) *chain = NULL;
 	ngx_int_t rc;
 	time_t min_time;
 	ngx_queue_t *q;
@@ -669,31 +667,39 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			SSL_certs_clear(ssl);
 			SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
-			if (!SSL_use_certificate(ssl, certificate->leaf)) {
-				ngx_shmtx_unlock(&shpool->mutex);
-
+			leaf = sk_X509_value(certificate->chain, 0);
+			if (!leaf) {
 				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"SSL_use_certificate(...) failed");
-				goto error;
+					"sk_X509_value(...) failed");
+				goto error_shpool_unlock;
 			}
 
-			for (i = 0; i < 8 && certificate->chain[i]; i++) {
-				if (!SSL_add1_chain_cert(ssl, certificate->chain[i])) {
-					ngx_shmtx_unlock(&shpool->mutex);
+			if (!SSL_use_certificate(ssl, leaf)) {
+				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+					"SSL_use_certificate(...) failed");
+				goto error_shpool_unlock;
+			}
 
+			for (i = 1; i < sk_X509_num(certificate->chain); i++) {
+				x509 = sk_X509_value(certificate->chain, i);
+				if (!x509) {
+					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+						"sk_X509_value(...) failed");
+					goto error_shpool_unlock;
+				}
+
+				if (!SSL_add1_chain_cert(ssl, x509)) {
 					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 						"SSL_add_extra_chain_cert(...) failed");
-					goto error;
+					goto error_shpool_unlock;
 				}
 			}
 
 			if (!SSL_set_session_id_context(ssl, certificate->sid_ctx,
 					certificate->sid_ctx_len)) {
-				ngx_shmtx_unlock(&shpool->mutex);
-
 				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 					"SSL_set_session_id_context(...) failed");
-				goto error;
+				goto error_shpool_unlock;
 			}
 
 			ngx_shmtx_unlock(&shpool->mutex);
@@ -727,14 +733,12 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
 	if (!SSL_use_certificate(ssl, leaf)) {
-		X509_free(leaf);
 		goto error;
 	}
 
 	public_key = X509_get_pubkey(leaf);
 	if (!public_key) {
 		ngx_log_error(NGX_LOG_EMERG, c->log, 0, "X509_get_pubkey failed");
-		X509_free(leaf);
 		goto error;
 	}
 
@@ -749,7 +753,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	default:
 		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
 			"certificate does not contain a supported key type");
-		X509_free(leaf);
 		goto error;
 	}
 
@@ -761,14 +764,12 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		|| !leaf->cert_info->key->public_key->length) {
 		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
 			"certificate does not contain valid public key");
-		X509_free(leaf);
 		goto error;
 	}
 
 	if (!SHA1(leaf->cert_info->key->public_key->data,
 			leaf->cert_info->key->public_key->length, conn->ski)) {
 		ngx_log_error(NGX_LOG_EMERG, c->log, 0, "SHA1 failed");
-		X509_free(leaf);
 		goto error;
 	}
 
@@ -776,9 +777,19 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		goto error;
 	}
 
-	dont_cache = 0;
+	if (conf->shm_zone) {
+		chain = sk_X509_new_null();
+		if (!chain) {
+			ngx_log_error(NGX_LOG_EMERG, c->log, 0, "sk_X509_new_null() failed");
+			goto error;
+		}
 
-	ngx_memset((u_char *)chain, 0, sizeof(chain));
+		if (sk_X509_push(chain, leaf) == 0) {
+			ngx_log_error(NGX_LOG_EMERG, c->log, 0, "sk_X509_push(...) failed");
+			X509_free(leaf);
+			goto error;
+		}
+	}
 
 	for (i = 0; ; i++) {
 		x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
@@ -805,21 +816,16 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			goto error;
 		}
 
-		if (!conf->shm_zone || dont_cache) {
+		if (chain && sk_X509_push(chain, x509) == 0) {
 			X509_free(x509);
-		} else if (i < 8) {
-			chain[i] = x509;
-		} else if (i == 8) {
-			for (i = 0; i < 8; i++) {
-				X509_free(chain[i]);
-			}
 
-			dont_cache = 1;
-			X509_free(x509);
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+				"sk_X509_push(...) failed");
+			goto error;
 		}
 	}
 
-	if (conf->shm_zone && !dont_cache) {
+	if (conf->shm_zone) {
 		ngx_shmtx_lock(&shpool->mutex);
 
 		certificate = ngx_slab_alloc_locked(shpool,
@@ -846,12 +852,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				"remove certificate from cache: \"%*s\"",
 				ngx_hex_dump(buf, min_cert->key, SHA256_DIGEST_LENGTH) - buf, buf);
 
-			for (i = 0; i < 8 && min_cert->chain[i]; i++) {
-				X509_free(min_cert->chain[i]);
-			}
-
-			X509_free(min_cert->leaf);
-
+			sk_X509_pop_free(min_cert->chain, X509_free);
 			ngx_queue_remove(&min_cert->queue);
 			ngx_rbtree_delete(&cache->session_rbtree, &min_cert->node);
 			ngx_slab_free_locked(shpool, min_cert);
@@ -870,8 +871,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 		ngx_memcpy(certificate->key, key, SHA256_DIGEST_LENGTH);
 
-		certificate->leaf = leaf;
-		ngx_memcpy((u_char *)certificate->chain, (u_char *)chain, sizeof(chain));
+		certificate->chain = chain;
 
 		certificate->type = conn->key.type;
 		certificate->sig_len = conn->key.sig_len;
@@ -889,8 +889,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
 			"inserted certificate into cache: \"%*s\"",
 			ngx_hex_dump(buf, key, SHA256_DIGEST_LENGTH) - buf, buf);
-	} else {
-		X509_free(leaf);
 	}
 
 skip_cache:
@@ -900,7 +898,18 @@ done:
 	ngx_http_keyless_cleanup_operation(conn->op);
 	return 1;
 
+error_shpool_unlock:
+	ngx_shmtx_unlock(&shpool->mutex);
+
 error:
+	ERR_clear_error();
+
+	if (chain) {
+		sk_X509_pop_free(chain, X509_free);
+	} else if (leaf) {
+		X509_free(leaf);
+	}
+
 	if (public_key) {
 		EVP_PKEY_free(public_key);
 	}
