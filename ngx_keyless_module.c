@@ -1162,6 +1162,9 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		case KSSL_OP_RSA_SIGN_SHA256:
 		case KSSL_OP_RSA_SIGN_SHA384:
 		case KSSL_OP_RSA_SIGN_SHA512:
+		case KSSL_OP_RSA_PSS_SIGN_SHA256:
+		case KSSL_OP_RSA_PSS_SIGN_SHA384:
+		case KSSL_OP_RSA_PSS_SIGN_SHA512:
 		case KSSL_OP_ECDSA_SIGN_MD5SHA1:
 		case KSSL_OP_ECDSA_SIGN_SHA1:
 		case KSSL_OP_ECDSA_SIGN_SHA224:
