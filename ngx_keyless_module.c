@@ -58,6 +58,7 @@ typedef struct {
 
 	ngx_event_t *ev;
 	ngx_event_t timer;
+	ngx_pool_cleanup_t *cln;
 
 	unsigned int id;
 
@@ -943,7 +944,6 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 	kssl_header_st header;
 	kssl_operation_st operation;
 	size_t length;
-	ngx_pool_cleanup_t *cln;
 	ngx_int_t rc;
 
 	ssl = c->ssl->connection;
@@ -1074,14 +1074,14 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 	op->timer.data = c->write;
 	op->timer.log = c->log;
 
-	cln = ngx_pool_cleanup_add(c->pool, 0);
-	if (!cln) {
+	op->cln = ngx_pool_cleanup_add(c->pool, 0);
+	if (!op->cln) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_pool_cleanup_add failed");
 		goto error;
 	}
 
-	cln->handler = ngx_http_keyless_cleanup_timer_handler;
-	cln->data = &op->timer;
+	op->cln->handler = ngx_http_keyless_cleanup_timer_handler;
+	op->cln->data = &op->timer;
 
 	ngx_add_timer(&op->timer, conf->timeout);
 
@@ -1187,6 +1187,8 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 
 static void ngx_http_keyless_cleanup_operation(ngx_http_keyless_op_t *op)
 {
+	op->cln->handler = NULL;
+
 	if (op->recv.start) {
 		OPENSSL_cleanse(op->recv.start, op->recv.end - op->recv.start);
 		ngx_pfree(op->conf->pool, op->recv.start);
