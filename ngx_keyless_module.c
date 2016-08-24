@@ -39,6 +39,7 @@ typedef struct {
 	ngx_str_t address;
 	ngx_str_t shm_name;
 	size_t shm_size;
+	ngx_msec_t timeout;
 
 	ngx_peer_connection_t pc;
 
@@ -181,6 +182,13 @@ static ngx_command_t ngx_http_keyless_module_commands[] = {
 	  offsetof(ngx_http_keyless_srv_conf_t, shm_size),
 	  NULL },
 
+	{ ngx_string("keyless_ssl_timeout"),
+	  NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+	  ngx_conf_set_msec_slot,
+	  NGX_HTTP_SRV_CONF_OFFSET,
+	  offsetof(ngx_http_keyless_srv_conf_t, timeout),
+	  NULL },
+
 	ngx_null_command
 };
 
@@ -230,6 +238,7 @@ static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf)
 	 */
 
 	kcscf->shm_size = NGX_CONF_UNSET_SIZE;
+	kcscf->timeout = NGX_CONF_UNSET_MSEC;
 
 	return kcscf;
 }
@@ -245,6 +254,7 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	ngx_conf_merge_str_value(conf->address, prev->address, "");
 	ngx_conf_merge_str_value(conf->shm_name, prev->shm_name, "");
 	ngx_conf_merge_size_value(conf->shm_size, prev->shm_size, 8 * ngx_pagesize);
+	ngx_conf_merge_msec_value(conf->timeout, prev->timeout, 250);
 
 	if (!conf->address.len || ngx_strcmp(conf->address.data, "off") == 0) {
 		return NGX_CONF_OK;
@@ -1073,7 +1083,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 	cln->handler = ngx_http_keyless_cleanup_timer_handler;
 	cln->data = &op->timer;
 
-	ngx_add_timer(&op->timer, 250);
+	ngx_add_timer(&op->timer, conf->timeout);
 
 	ngx_queue_insert_tail(&conf->recv_ops, &op->recv_queue);
 	ngx_queue_insert_tail(&conf->send_ops, &op->send_queue);
