@@ -33,7 +33,10 @@
 #define NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS     2
 #define NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER         3
 
-#define NGX_HTTP_KEYLESS_WRITE_WORD(b, v) *(unsigned short*)(b) = htons((v)); (b) += sizeof(unsigned short);
+#define NGX_HTTP_KEYLESS_WRITE_WORD(b, v) do { \
+		*(unsigned short*)(b) = htons((v)); \
+		(b) += sizeof(unsigned short); \
+	} while(0);
 
 typedef struct {
 	ngx_str_t address;
