@@ -33,10 +33,6 @@
 #define NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS     2
 #define NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER         3
 
-#ifndef TLSEXT_TYPE_elliptic_curves
-#	define TLSEXT_TYPE_elliptic_curves TLSEXT_TYPE_supported_groups
-#endif
-
 #define NGX_HTTP_KEYLESS_WRITE_WORD(b, v) *(unsigned short*)(b) = htons((v)); (b) += sizeof(unsigned short);
 
 typedef struct {
@@ -405,8 +401,8 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callback_ctx *ctx)
 {
 	const uint8_t *extension_data;
-	size_t extension_len, sig_algs_len, ec_curves_len;
-	CBS extension, cipher_suites, server_name_list, host_name, sig_algs, ec_curves;
+	size_t extension_len, sig_algs_len, supported_groups_len;
+	CBS extension, cipher_suites, server_name_list, host_name, sig_algs, supported_groups;
 	int has_server_name;
 	uint16_t cipher_suite;
 	uint8_t name_type;
@@ -474,29 +470,30 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 
 		sig_algs_end += sig_algs_len;
 
-		if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_elliptic_curves,
+		if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_supported_groups,
 				&extension_data, &extension_len)) {
 			CBS_init(&extension, extension_data, extension_len);
 
-			if (!CBS_get_u16_length_prefixed(&extension, &ec_curves)
-				|| CBS_len(&ec_curves) == 0
+			if (!CBS_get_u16_length_prefixed(&extension, &supported_groups)
+				|| CBS_len(&supported_groups) == 0
 				|| CBS_len(&extension) != 0
-				|| CBS_len(&ec_curves) % 2 != 0
-				|| CBS_len(&ec_curves) > sizeof(tmp_sig_algs) - 3 - 4
+				|| CBS_len(&supported_groups) % 2 != 0
+				|| CBS_len(&supported_groups) > sizeof(tmp_sig_algs) - 3 - 4
 					- (sig_algs_end - tmp_sig_algs)) {
 				goto cleanup;
 			}
 
-			ec_curves_len = CBS_len(&ec_curves);
+			supported_groups_len = CBS_len(&supported_groups);
 
 			*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS;
-			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, ec_curves_len);
+			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, supported_groups_len);
 
-			if (!CBS_copy_bytes(&ec_curves, sig_algs_end, ec_curves_len)) {
+			if (!CBS_copy_bytes(&supported_groups, sig_algs_end,
+					supported_groups_len)) {
 				goto cleanup;
 			}
 
-			sig_algs_end += ec_curves_len;
+			sig_algs_end += supported_groups_len;
 		} else {
 			/* Clients are not required to send a supported_curves extension. In this
 			 * case, the server is free to pick any curve it likes. See RFC 4492,
