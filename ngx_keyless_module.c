@@ -1133,7 +1133,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 
 	op->recv.pos += header.length;
 
-	if (op->recv.last - op->recv.pos != 0) {
+	if (op->recv.last != op->recv.pos) {
 		ngx_log_error(NGX_LOG_ERR, op->log, 0, "trailing data recieved");
 	}
 
