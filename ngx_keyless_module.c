@@ -33,11 +33,6 @@
 #define NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS     2
 #define NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER         3
 
-#define NGX_HTTP_KEYLESS_WRITE_WORD(b, v) do { \
-		*(unsigned short*)(b) = htons((v)); \
-		(b) += sizeof(unsigned short); \
-	} while(0);
-
 typedef struct {
 	ngx_str_t address;
 	ngx_str_t shm_name;
@@ -415,18 +410,21 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callback_ctx *ctx)
 {
 	const uint8_t *extension_data;
-	size_t extension_len, sig_algs_len, supported_groups_len;
+	size_t extension_len, payload_len;
 	CBS extension, cipher_suites, server_name_list, host_name, sig_algs, supported_groups;
 	int has_server_name;
 	uint16_t cipher_suite;
-	uint8_t name_type;
+	uint8_t name_type, *payload;
 	const SSL_CIPHER *cipher;
 	char *server_name = NULL;
-	unsigned char tmp_sig_algs[256];
-	unsigned char *sig_algs_end = &tmp_sig_algs[0];
+	CBB payload_cbb, child_cbb;
 	int rc = -1;
 	ngx_connection_t *c;
 	ngx_http_keyless_conn_t *conn;
+
+	if (!CBB_init(&payload_cbb, 256)) {
+		goto cleanup;
+	}
 
 	has_server_name = SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_server_name,
 		&extension_data, &extension_len);
@@ -468,21 +466,11 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| CBS_len(&sig_algs) == 0
 			|| CBS_len(&extension) != 0
 			|| CBS_len(&sig_algs) % 2 != 0
-			|| CBS_len(&sig_algs) > sizeof(tmp_sig_algs) - 3 - 5 - 4
-				- (sig_algs_end - tmp_sig_algs)) {
+			|| !CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS)
+			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+			|| !CBB_add_bytes(&child_cbb, CBS_data(&sig_algs), CBS_len(&sig_algs))) {
 			goto cleanup;
 		}
-
-		sig_algs_len = CBS_len(&sig_algs);
-
-		*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS;
-		NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, sig_algs_len);
-
-		if (!CBS_copy_bytes(&sig_algs, sig_algs_end, sig_algs_len)) {
-			goto cleanup;
-		}
-
-		sig_algs_end += sig_algs_len;
 
 		if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_supported_groups,
 				&extension_data, &extension_len)) {
@@ -492,29 +480,21 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 				|| CBS_len(&supported_groups) == 0
 				|| CBS_len(&extension) != 0
 				|| CBS_len(&supported_groups) % 2 != 0
-				|| CBS_len(&supported_groups) > sizeof(tmp_sig_algs) - 3 - 4
-					- (sig_algs_end - tmp_sig_algs)) {
+				|| !CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
+				|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+				|| !CBB_add_bytes(&child_cbb, CBS_data(&supported_groups),
+					CBS_len(&supported_groups))) {
 				goto cleanup;
 			}
-
-			supported_groups_len = CBS_len(&supported_groups);
-
-			*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS;
-			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, supported_groups_len);
-
-			if (!CBS_copy_bytes(&supported_groups, sig_algs_end,
-					supported_groups_len)) {
-				goto cleanup;
-			}
-
-			sig_algs_end += supported_groups_len;
 		} else {
 			/* Clients are not required to send a supported_curves extension. In this
 			 * case, the server is free to pick any curve it likes. See RFC 4492,
 			 * section 4, paragraph 3. */
-			*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS;
-			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 2);
-			NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, SSL_CURVE_SECP256R1);
+			if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
+				|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+				|| !CBB_add_u16(&child_cbb, SSL_CURVE_SECP256R1)) {
+				goto cleanup;
+			}
 		}
 
 		CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
@@ -528,24 +508,28 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			if (cipher && SSL_CIPHER_is_ECDSA(cipher)
 				&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
 					NULL, cipher)) {
-				*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER;
-				NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 1);
-				*sig_algs_end++ = 0xff;
+				if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
+					|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+					|| !CBB_add_u8(&child_cbb, 0xff)) {
+					goto cleanup;
+				}
+
 				break;
 			}
 		}
-	} else if (has_server_name) {
-		*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS;
-		NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 4);
-		*sig_algs_end++ = TLSEXT_hash_sha256;
-		*sig_algs_end++ = TLSEXT_signature_rsa;
-		*sig_algs_end++ = TLSEXT_hash_sha1;
-		*sig_algs_end++ = TLSEXT_signature_rsa;
 	} else {
-		*sig_algs_end++ = NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS;
-		NGX_HTTP_KEYLESS_WRITE_WORD(sig_algs_end, 2);
-		*sig_algs_end++ = TLSEXT_hash_sha1;
-		*sig_algs_end++ = TLSEXT_signature_rsa;
+		if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS)
+			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+			|| (has_server_name && !CBB_add_u8(&child_cbb, TLSEXT_hash_sha256))
+			|| (has_server_name && !CBB_add_u8(&child_cbb, TLSEXT_signature_rsa))
+			|| !CBB_add_u8(&child_cbb, TLSEXT_hash_sha1)
+			|| !CBB_add_u8(&child_cbb, TLSEXT_signature_rsa)) {
+			goto cleanup;
+		}
+	}
+
+	if (!CBB_finish(&payload_cbb, &payload, &payload_len)) {
+		goto cleanup;
 	}
 
 	c = ngx_ssl_get_connection(ctx->ssl);
@@ -559,8 +543,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		goto cleanup;
 	}
 
-	conn->op = ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE, c, conn,
-		tmp_sig_algs, sig_algs_end - tmp_sig_algs);
+	conn->op = ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE, c, conn, payload,
+		payload_len);
 	if (!conn->op) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 			"ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE) failed");
@@ -570,6 +554,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	rc = 1;
 
 cleanup:
+	CBB_cleanup(&payload_cbb);
+
 	if (server_name) {
 		ctx->ssl->tlsext_hostname = NULL;
 		OPENSSL_free(server_name);
