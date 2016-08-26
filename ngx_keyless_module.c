@@ -626,7 +626,11 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	switch (ngx_http_keyless_operation_complete(conn->op, &payload, &payload_len)) {
 		case ssl_private_key_failure:
-			if (conn->op->error == KSSL_ERROR_CERT_NOT_FOUND && conf->fallback) {
+			if (conn->op->error == KSSL_ERROR_CERT_NOT_FOUND) {
+				if (!conf->fallback) {
+					SSL_certs_clear(ssl);
+				}
+
 				goto done;
 			}
 
