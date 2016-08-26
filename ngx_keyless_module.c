@@ -777,6 +777,10 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 					goto error;
 				}
 
+				if (bio) {
+					BIO_free(bio);
+				}
+
 				bio = BIO_new_mem_buf(CBS_data(&child_cbs), CBS_len(&child_cbs));
 				if (!bio) {
 					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
