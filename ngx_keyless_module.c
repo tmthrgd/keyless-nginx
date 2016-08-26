@@ -772,10 +772,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		}
 
 		switch (tag) {
-			case NGX_HTTP_KEYLESS_TAG_SKI:
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"get certificate format erorr");
-				goto error;
 			case NGX_HTTP_KEYLESS_TAG_LEAF:
 			case NGX_HTTP_KEYLESS_TAG_CHAIN:
 				if (tag == NGX_HTTP_KEYLESS_TAG_LEAF && leaf) {
@@ -827,6 +823,10 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				}
 
 				break;
+			default:
+				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+					"get certificate format erorr");
+				goto error;
 		}
 	}
 
