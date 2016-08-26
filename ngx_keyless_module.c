@@ -1202,6 +1202,16 @@ static void ngx_http_keyless_cleanup_operation(ngx_http_keyless_op_t *op)
 		op->recv.end = NULL;
 	}
 
+	if (ngx_queue_prev(&op->recv_queue)
+		&& ngx_queue_next(ngx_queue_prev(&op->recv_queue)) == &op->recv_queue) {
+		ngx_queue_remove(&op->recv_queue);
+	}
+
+	if (ngx_queue_prev(&op->send_queue)
+		&& ngx_queue_next(ngx_queue_prev(&op->send_queue)) == &op->send_queue) {
+		ngx_queue_remove(&op->send_queue);
+	}
+
 	ngx_pfree(op->conf->pool, op);
 }
 
