@@ -75,6 +75,9 @@ typedef struct {
 typedef struct {
 	ngx_http_keyless_op_t *op;
 
+	uint8_t *payload;
+	size_t payload_len;
+
 	struct {
 		int type;
 		size_t sig_len;
@@ -420,11 +423,11 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callback_ctx *ctx)
 {
 	const uint8_t *extension_data;
-	size_t extension_len, payload_len;
+	size_t extension_len;
 	CBS extension, cipher_suites, server_name_list, host_name, sig_algs, supported_groups;
 	int has_server_name;
 	uint16_t cipher_suite;
-	uint8_t name_type, *payload = NULL;
+	uint8_t name_type;
 	const SSL_CIPHER *cipher;
 	char *server_name = NULL;
 	CBB payload_cbb, child_cbb;
@@ -538,10 +541,6 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		}
 	}
 
-	if (!CBB_finish(&payload_cbb, &payload, &payload_len)) {
-		goto cleanup;
-	}
-
 	c = ngx_ssl_get_connection(ctx->ssl);
 
 	conn = ngx_pcalloc(c->pool, sizeof(ngx_http_keyless_conn_t));
@@ -553,22 +552,14 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		goto cleanup;
 	}
 
-	conn->op = ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE, c, conn, payload,
-		payload_len);
-	if (!conn->op) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE) failed");
+	if (!CBB_finish(&payload_cbb, &conn->payload, &conn->payload_len)) {
 		goto cleanup;
 	}
 
 	rc = 1;
 
 cleanup:
-	if (payload) {
-		OPENSSL_free(payload);
-	} else {
-		CBB_cleanup(&payload_cbb);
-	}
+	CBB_cleanup(&payload_cbb);
 
 	if (server_name) {
 		ctx->ssl->tlsext_hostname = NULL;
@@ -611,6 +602,21 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	conn = SSL_get_ex_data(ssl, g_ssl_exdata_conn_index);
 	if (!conn) {
 		return 1;
+	}
+
+	if (!conn->op) {
+		conn->op = ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE, c, conn,
+			conn->payload, conn->payload_len);
+
+		OPENSSL_free(conn->payload);
+
+		if (!conn->op) {
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+				"ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE) failed");
+			return 0;
+		}
+
+		return -1;
 	}
 
 	conf = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_conf_index);
