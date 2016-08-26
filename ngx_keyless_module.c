@@ -38,6 +38,7 @@ typedef struct {
 	ngx_str_t shm_name;
 	size_t shm_size;
 	ngx_msec_t timeout;
+	ngx_flag_t fallback;
 
 	ngx_peer_connection_t pc;
 
@@ -188,6 +189,13 @@ static ngx_command_t ngx_http_keyless_module_commands[] = {
 	  offsetof(ngx_http_keyless_srv_conf_t, timeout),
 	  NULL },
 
+	{ ngx_string("keyless_ssl_fallback"),
+	  NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+	  ngx_conf_set_flag_slot,
+	  NGX_HTTP_SRV_CONF_OFFSET,
+	  offsetof(ngx_http_keyless_srv_conf_t, fallback),
+	  NULL },
+
 	ngx_null_command
 };
 
@@ -238,6 +246,7 @@ static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf)
 
 	kcscf->shm_size = NGX_CONF_UNSET_SIZE;
 	kcscf->timeout = NGX_CONF_UNSET_MSEC;
+	kcscf->fallback = NGX_CONF_UNSET;
 
 	return kcscf;
 }
@@ -254,6 +263,7 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	ngx_conf_merge_str_value(conf->shm_name, prev->shm_name, "");
 	ngx_conf_merge_size_value(conf->shm_size, prev->shm_size, 8 * ngx_pagesize);
 	ngx_conf_merge_msec_value(conf->timeout, prev->timeout, 250);
+	ngx_conf_merge_value(conf->fallback, prev->fallback, 1);
 
 	if (!conf->address.len || ngx_strcmp(conf->address.data, "off") == 0) {
 		return NGX_CONF_OK;
@@ -606,7 +616,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	switch (ngx_http_keyless_operation_complete(conn->op, &payload, &payload_len)) {
 		case ssl_private_key_failure:
-			if (conn->op->error == KSSL_ERROR_CERT_NOT_FOUND) {
+			if (conn->op->error == KSSL_ERROR_CERT_NOT_FOUND && conf->fallback) {
 				goto done;
 			}
 
