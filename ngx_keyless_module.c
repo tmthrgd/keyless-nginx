@@ -662,6 +662,9 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		goto error;
 	}
 
+	SSL_certs_clear(ssl);
+	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
+
 	if (conf->shm_zone) {
 		hash = ngx_crc32_short(conn->ski, KSSL_SKI_SIZE);
 
@@ -699,9 +702,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			conn->key.sig_len = certificate->sig_len;
 
 			ngx_memcpy(conn->ski, certificate->ski, KSSL_SKI_SIZE);
-
-			SSL_certs_clear(ssl);
-			SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
 			leaf = sk_X509_value(certificate->chain, 0);
 			if (!leaf) {
@@ -759,9 +759,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			goto error;
 		}
 	}
-
-	SSL_certs_clear(ssl);
-	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
 	while (CBS_len(&payload_cbs) != 0) {
 		if (!CBS_get_u8(&payload_cbs, &tag)
