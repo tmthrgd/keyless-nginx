@@ -424,7 +424,7 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	CBS extension, cipher_suites, server_name_list, host_name, sig_algs, supported_groups;
 	int has_server_name;
 	uint16_t cipher_suite;
-	uint8_t name_type, *payload;
+	uint8_t name_type, *payload = NULL;
 	const SSL_CIPHER *cipher;
 	char *server_name = NULL;
 	CBB payload_cbb, child_cbb;
@@ -564,7 +564,11 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	rc = 1;
 
 cleanup:
-	CBB_cleanup(&payload_cbb);
+	if (payload) {
+		OPENSSL_free(payload);
+	} else {
+		CBB_cleanup(&payload_cbb);
+	}
 
 	if (server_name) {
 		ctx->ssl->tlsext_hostname = NULL;
