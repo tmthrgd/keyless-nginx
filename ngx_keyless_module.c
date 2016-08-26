@@ -1079,20 +1079,20 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 		goto error;
 	}
 
-	op->timer.handler = ngx_http_keyless_operation_timeout_handler;
-	op->timer.data = c->write;
-	op->timer.log = c->log;
-
-	op->cln = ngx_pool_cleanup_add(c->pool, 0);
-	if (!op->cln) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_pool_cleanup_add failed");
-		goto error;
-	}
-
-	op->cln->handler = ngx_http_keyless_cleanup_timer_handler;
-	op->cln->data = &op->timer;
-
 	if (conf->timeout) {
+		op->timer.handler = ngx_http_keyless_operation_timeout_handler;
+		op->timer.data = c->write;
+		op->timer.log = c->log;
+
+		op->cln = ngx_pool_cleanup_add(c->pool, 0);
+		if (!op->cln) {
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_pool_cleanup_add failed");
+			goto error;
+		}
+
+		op->cln->handler = ngx_http_keyless_cleanup_timer_handler;
+		op->cln->data = &op->timer;
+
 		ngx_add_timer(&op->timer, conf->timeout);
 	}
 
@@ -1198,7 +1198,13 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 
 static void ngx_http_keyless_cleanup_operation(ngx_http_keyless_op_t *op)
 {
-	op->cln->handler = NULL;
+	if (op->cln) {
+		op->cln->handler = NULL;
+	}
+
+	if (op->timer.handler) {
+		ngx_del_timer(&op->timer);
+	}
 
 	if (op->recv.start) {
 		OPENSSL_cleanse(op->recv.start, op->recv.end - op->recv.start);
