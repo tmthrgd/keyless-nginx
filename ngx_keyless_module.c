@@ -1092,7 +1092,9 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 	op->cln->handler = ngx_http_keyless_cleanup_timer_handler;
 	op->cln->data = &op->timer;
 
-	ngx_add_timer(&op->timer, conf->timeout);
+	if (conf->timeout) {
+		ngx_add_timer(&op->timer, conf->timeout);
+	}
 
 	ngx_queue_insert_tail(&conf->recv_ops, &op->recv_queue);
 	ngx_queue_insert_tail(&conf->send_ops, &op->send_queue);
