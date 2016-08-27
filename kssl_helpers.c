@@ -427,7 +427,7 @@ int kssl_parse_message_payload(unsigned char *payload,
 			case KSSL_TAG_PADDING:
 				break;
 			default:
-				break;
+				return 0;
 		}
 	}
 
