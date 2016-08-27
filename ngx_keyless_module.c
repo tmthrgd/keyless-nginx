@@ -721,9 +721,9 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				goto error_shpool_unlock;
 			}
 
-			if (!SSL_set0_chain(ssl, chain)) {
+			if (!SSL_set1_chain(ssl, chain)) {
 				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"SSL_set0_chain(...) failed");
+					"SSL_set1_chain(...) failed");
 				goto error_shpool_unlock;
 			}
 
