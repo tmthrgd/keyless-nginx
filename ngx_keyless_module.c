@@ -584,11 +584,10 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	ngx_http_keyless_srv_conf_t *conf;
 	ngx_http_keyless_conn_t *conn;
 	SSL *ssl;
-	const unsigned char *payload;
+	const unsigned char *payload, *p;
 	size_t payload_len;
 	CBS payload_cbs, child_cbs;
 	uint8_t tag;
-	BIO *bio = NULL;
 	X509 *leaf = NULL, *x509;
 	EVP_PKEY *public_key = NULL;
 	ngx_slab_pool_t *shpool = NULL /* 'may be used uninitialized' warning */;
@@ -777,18 +776,9 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 					goto error;
 				}
 
-				if (bio) {
-					BIO_free(bio);
-				}
+				p = CBS_data(&child_cbs);
 
-				bio = BIO_new_mem_buf(CBS_data(&child_cbs), CBS_len(&child_cbs));
-				if (!bio) {
-					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"BIO_new_mem_buf(...) failed");
-					goto error;
-				}
-
-				x509 = d2i_X509_bio(bio, NULL);
+				x509 = d2i_X509(NULL, &p, CBS_len(&child_cbs));
 				if (!x509) {
 					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 						"d2i_X509_bio(...) failed");
@@ -893,7 +883,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				sizeof(ngx_http_keyless_cached_certificate_t));
 			if (!certificate) {
 				ngx_shmtx_unlock(&shpool->mutex);
-				goto skip_cache;
+				goto done;
 			}
 		}
 
@@ -921,9 +911,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			ngx_hex_dump(buf, conn->ski, KSSL_SKI_SIZE) - buf, buf);
 	}
 
-skip_cache:
-	BIO_free(bio);
-
 done:
 	ngx_http_keyless_cleanup_operation(conn->op);
 	return 1;
@@ -942,10 +929,6 @@ error:
 
 	if (public_key) {
 		EVP_PKEY_free(public_key);
-	}
-
-	if (bio) {
-		BIO_free(bio);
 	}
 
 	ngx_http_keyless_cleanup_operation(conn->op);
