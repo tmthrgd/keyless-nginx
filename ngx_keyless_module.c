@@ -595,7 +595,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	ngx_rbtree_node_t *node, *sentinel;
 	ngx_http_keyless_cached_certificate_t *certificate, *min_cert;
 	uint32_t hash = 0 /* 'may be used uninitialized' warning */;
-	size_t i;
 #if NGX_DEBUG
 	u_char buf[KSSL_SKI_SIZE*2];
 #endif /* NGX_DEBUG */
@@ -702,10 +701,17 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 			ngx_memcpy(conn->ski, certificate->ski, KSSL_SKI_SIZE);
 
-			leaf = sk_X509_value(certificate->chain, 0);
+			chain = sk_X509_dup(certificate->chain);
+			if (!chain) {
+				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+					"sk_X509_dup(...) failed");
+				goto error_shpool_unlock;
+			}
+
+			leaf = sk_X509_shift(chain);
 			if (!leaf) {
 				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"sk_X509_value(...) failed");
+					"sk_X509_shift(...) failed");
 				goto error_shpool_unlock;
 			}
 
@@ -715,20 +721,13 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				goto error_shpool_unlock;
 			}
 
-			for (i = 1; i < sk_X509_num(certificate->chain); i++) {
-				x509 = sk_X509_value(certificate->chain, i);
-				if (!x509) {
-					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"sk_X509_value(...) failed");
-					goto error_shpool_unlock;
-				}
-
-				if (!SSL_add1_chain_cert(ssl, x509)) {
-					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"SSL_add_extra_chain_cert(...) failed");
-					goto error_shpool_unlock;
-				}
+			if (!SSL_set0_chain(ssl, chain)) {
+				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+					"SSL_set0_chain(...) failed");
+				goto error_shpool_unlock;
 			}
+
+			chain = NULL;
 
 			if (!SSL_set_session_id_context(ssl, certificate->sid_ctx,
 					certificate->sid_ctx_len)) {
