@@ -50,7 +50,7 @@ enum {
 };
 
 enum {
-	// [Deprected]: SHA256 hash of RSA public key
+	// [Deprecated]: SHA256 hash of RSA public key
 	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x01,
 	// Server Name Identifier
 	NGX_HTTP_KEYLESS_TAG_SNI       = 0x02,
@@ -99,11 +99,11 @@ typedef enum {
 	// Request a certificate and chain
 	NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE = 0x20,
 
-	// [Deprected]: A test message
+	// [Deprecated]: A test message
 	NGX_HTTP_KEYLESS_OP_PING = 0xF1,
 	NGX_HTTP_KEYLESS_OP_PONG = 0xF2,
 
-	// [Deprected]: A verification message
+	// [Deprecated]: A verification message
 	NGX_HTTP_KEYLESS_OP_ACTIVATE = 0xF3,
 
 	// Response
@@ -118,7 +118,7 @@ typedef enum {
 	NGX_HTTP_KEYLESS_ERROR_CRYPTO_FAILED     = 0x01,
 	// Private key not found
 	NGX_HTTP_KEYLESS_ERROR_KEY_NOT_FOUND     = 0x02,
-	// [Deprected]: Disk read failure
+	// [Deprecated]: Disk read failure
 	NGX_HTTP_KEYLESS_ERROR_DISK_READ         = 0x03,
 	// Client-Server version mismatch
 	NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH  = 0x04,
