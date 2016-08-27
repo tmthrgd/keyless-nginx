@@ -5,9 +5,6 @@
 
 #include <ngx_event.h>
 
-#include <kssl.h>
-#include <kssl_helpers.h>
-
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
@@ -22,6 +19,13 @@
 
 #define NGX_HTTP_KEYLESS_OP_BUFFER_SIZE 2*1024
 
+#define NGX_HTTP_KEYLESS_VERSION_MAJOR 1
+#define NGX_HTTP_KEYLESS_VERSION_MINOR 0
+
+#define NGX_HTTP_KEYLESS_HEADER_LENGTH 8
+
+#define NGX_HTTP_KEYLESS_PAD_TO 1024
+
 /* taken from boringssl-1e4ae00/ssl/internal.h */
 #ifndef SSL_CURVE_SECP256R1
 #	define SSL_CURVE_SECP256R1 23
@@ -30,19 +34,105 @@
 #endif /* SSL_CURVE_SECP256R1 */
 
 enum {
-	NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS = 1,
-	NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS     = 2,
-	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER         = 3
+	NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS = 0x01,
+	NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS     = 0x02,
+	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER         = 0x03
 };
 
 enum {
-	// NGX_HTTP_KEYLESS_TAG_SKI (1) must occur first.
-	NGX_HTTP_KEYLESS_TAG_SKI   = 1,
-	// NGX_HTTP_KEYLESS_TAG_LEAF (2) must occur only once.
-	NGX_HTTP_KEYLESS_TAG_LEAF  = 2,
-	// NGX_HTTP_KEYLESS_TAG_CHAIN (3) will occur once, in order, for each extra certificate in the chain. 
-	NGX_HTTP_KEYLESS_TAG_CHAIN = 3
+	// NGX_HTTP_KEYLESS_TAG_CERT_SKI (1) must occur first.
+	NGX_HTTP_KEYLESS_TAG_CERT_SKI   = 0x01,
+	// NGX_HTTP_KEYLESS_TAG_CERT_LEAF (2) must occur only once.
+	NGX_HTTP_KEYLESS_TAG_CERT_LEAF  = 0x02,
+	// NGX_HTTP_KEYLESS_TAG_CERT_CHAIN (3) will occur once, in order,
+	// for each extra certificate in the chain.
+	NGX_HTTP_KEYLESS_TAG_CERT_CHAIN = 3
 };
+
+enum {
+	// [Deprected]: SHA256 hash of RSA public key
+	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x01,
+	// Server Name Identifier
+	NGX_HTTP_KEYLESS_TAG_SNI       = 0x02,
+	// Client IP Address
+	NGX_HTTP_KEYLESS_TAG_CLIENT_IP = 0x03,
+	// SHA1 hash of Subject Key Info
+	NGX_HTTP_KEYLESS_TAG_SKI       = 0x04,
+	// Server IP Address
+	NGX_HTTP_KEYLESS_TAG_SERVER_IP = 0x05,
+	// Request operation code (see ngx_http_keyless_operation_t)
+	NGX_HTTP_KEYLESS_TAG_OPCODE    = 0x11,
+	// Request payload
+	NGX_HTTP_KEYLESS_TAG_PAYLOAD   = 0x12,
+	// Padding
+	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x20,
+};
+
+typedef enum {
+	// Decrypt data using RSA with or without padding
+	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT     = 0x01,
+	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW = 0x08,
+
+	// Sign data using RSA
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_MD5SHA1 = 0x02,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA1    = 0x03,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA224  = 0x04,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA256  = 0x05,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA384  = 0x06,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA512  = 0x07,
+
+	// Sign data using RSA-PSS
+#define NGX_HTTP_KEYLESS_OP_RSA_PSS_MASK          0x30
+	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA256 = 0x35,
+	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA384 = 0x36,
+	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA512 = 0x37,
+
+	// Sign data using ECDSA
+#define NGX_HTTP_KEYLESS_OP_ECDSA_MASK           0x10
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_MD5SHA1 = 0x12,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA1    = 0x13,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA224  = 0x14,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA256  = 0x15,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA384  = 0x16,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA512  = 0x17,
+
+	// Request a certificate and chain
+	NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE = 0x20,
+
+	// [Deprected]: A test message
+	NGX_HTTP_KEYLESS_OP_PING = 0xF1,
+	NGX_HTTP_KEYLESS_OP_PONG = 0xF2,
+
+	// [Deprected]: A verification message
+	NGX_HTTP_KEYLESS_OP_ACTIVATE = 0xF3,
+
+	// Response
+	NGX_HTTP_KEYLESS_OP_RESPONSE = 0xF0,
+	NGX_HTTP_KEYLESS_OP_ERROR    = 0xFF,
+} ngx_http_keyless_operation_t;
+
+typedef enum {
+	// No error
+	NGX_HTTP_KEYLESS_ERROR_NONE              = 0x00,
+	// Cryptographic error
+	NGX_HTTP_KEYLESS_ERROR_CRYPTO_FAILED     = 0x01,
+	// Private key not found
+	NGX_HTTP_KEYLESS_ERROR_KEY_NOT_FOUND     = 0x02,
+	// [Deprected]: Disk read failure
+	NGX_HTTP_KEYLESS_ERROR_DISK_READ         = 0x03,
+	// Client-Server version mismatch
+	NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH  = 0x04,
+	// Invalid/unsupported opcode
+	NGX_HTTP_KEYLESS_ERROR_BAD_OPCODE        = 0x05,
+	// Opcode sent at wrong time/direction
+	NGX_HTTP_KEYLESS_ERROR_UNEXPECTED_OPCODE = 0x06,
+	// Malformed message
+	NGX_HTTP_KEYLESS_ERROR_FORMAT            = 0x07,
+	// Other internal error
+	NGX_HTTP_KEYLESS_ERROR_INTERNAL          = 0x08,
+	// Certificate not found
+	NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND    = 0x09,
+} ngx_http_keyless_error_t;
 
 typedef struct {
 	ngx_str_t address;
@@ -72,7 +162,7 @@ typedef struct {
 
 	unsigned int id;
 
-	unsigned char error;
+	ngx_http_keyless_error_t error;
 
 	ngx_log_t *log;
 
@@ -94,7 +184,7 @@ typedef struct {
 		size_t sig_len;
 	} key;
 
-	unsigned char ski[KSSL_SKI_SIZE];
+	unsigned char ski[SHA_DIGEST_LENGTH];
 } ngx_http_keyless_conn_t;
 
 typedef struct {
@@ -114,7 +204,7 @@ typedef struct {
 	int type;
 	size_t sig_len;
 
-	unsigned char ski[KSSL_SKI_SIZE];
+	unsigned char ski[SHA_DIGEST_LENGTH];
 
 	unsigned char sid_ctx[EVP_MAX_MD_SIZE];
 	size_t sid_ctx_len;
@@ -130,11 +220,11 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callback_ctx *ctx);
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
 
-static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et opcode,
+static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
 		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
 		size_t in_len);
 static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_http_keyless_op_t *op,
-		const uint8_t **out, size_t *out_len);
+		CBS *out);
 static void ngx_http_keyless_cleanup_operation(ngx_http_keyless_op_t *op);
 
 static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
@@ -152,6 +242,8 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t
 		uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
 static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out);
+
+static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error);
 
 /* this is ngx_ssl_session_id_context from nginx-1.9.15/src/event/ngx_event_openssl.c */
 static ngx_int_t ngx_http_keyless_ssl_session_id_context(ngx_connection_t *c, ngx_str_t *sess_ctx,
@@ -407,8 +499,8 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 			certificate = (ngx_http_keyless_cached_certificate_t *)node;
 			certificate_temp = (ngx_http_keyless_cached_certificate_t *)temp;
 
-			if (ngx_memn2cmp(certificate->ski, certificate_temp->ski, KSSL_SKI_SIZE,
-					KSSL_SKI_SIZE) < 0) {
+			if (ngx_memn2cmp(certificate->ski, certificate_temp->ski,
+					SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH) < 0) {
 				p = &temp->left;
 			} else {
 				p = &temp->right;
@@ -584,9 +676,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	ngx_http_keyless_srv_conf_t *conf;
 	ngx_http_keyless_conn_t *conn;
 	SSL *ssl;
-	const unsigned char *payload, *p;
-	size_t payload_len;
-	CBS payload_cbs, child_cbs;
+	const unsigned char *p;
+	CBS payload, child;
 	uint8_t tag;
 	X509 *leaf = NULL, *x509;
 	EVP_PKEY *public_key = NULL;
@@ -596,7 +687,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	ngx_http_keyless_cached_certificate_t *certificate, *min_cert;
 	uint32_t hash = 0 /* 'may be used uninitialized' warning */;
 #if NGX_DEBUG
-	u_char buf[KSSL_SKI_SIZE*2];
+	u_char buf[SHA_DIGEST_LENGTH*2];
 #endif /* NGX_DEBUG */
 	STACK_OF(X509) *chain = NULL;
 	ngx_int_t rc;
@@ -612,14 +703,15 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	}
 
 	if (!conn->op) {
-		conn->op = ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE, c, conn,
-			conn->payload, conn->payload_len);
+		conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE, c,
+			conn, conn->payload, conn->payload_len);
 
 		OPENSSL_free(conn->payload);
 
 		if (!conn->op) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"ngx_http_keyless_start_operation(KSSL_OP_GET_CERTIFICATE) failed");
+				"ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE)"
+				" failed");
 			return 0;
 		}
 
@@ -631,9 +723,9 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		goto error;
 	}
 
-	switch (ngx_http_keyless_operation_complete(conn->op, &payload, &payload_len)) {
+	switch (ngx_http_keyless_operation_complete(conn->op, &payload)) {
 		case ssl_private_key_failure:
-			if (conn->op->error == KSSL_ERROR_CERT_NOT_FOUND) {
+			if (conn->op->error == NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND) {
 				if (!conf->fallback) {
 					SSL_certs_clear(ssl);
 				}
@@ -648,13 +740,11 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			break;
 	}
 
-	CBS_init(&payload_cbs, payload, payload_len);
-
-	if (!CBS_get_u8(&payload_cbs, &tag)
-		|| tag != NGX_HTTP_KEYLESS_TAG_SKI
-		|| !CBS_get_u16_length_prefixed(&payload_cbs, &child_cbs)
-		|| CBS_len(&child_cbs) != KSSL_SKI_SIZE
-		|| !CBS_copy_bytes(&child_cbs, conn->ski, CBS_len(&child_cbs))) {
+	if (!CBS_get_u8(&payload, &tag)
+		|| tag != NGX_HTTP_KEYLESS_TAG_CERT_SKI
+		|| !CBS_get_u16_length_prefixed(&payload, &child)
+		|| CBS_len(&child) != SHA_DIGEST_LENGTH
+		|| !CBS_copy_bytes(&child, conn->ski, CBS_len(&child))) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 			"get certificate format erorr");
 		goto error;
@@ -664,7 +754,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
 	if (conf->shm_zone) {
-		hash = ngx_crc32_short(conn->ski, KSSL_SKI_SIZE);
+		hash = ngx_crc32_short(conn->ski, SHA_DIGEST_LENGTH);
 
 		cache = conf->shm_zone->data;
 		shpool = (ngx_slab_pool_t *)conf->shm_zone->shm.addr;
@@ -685,7 +775,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 			certificate = (ngx_http_keyless_cached_certificate_t *)node;
 
-			rc = ngx_memn2cmp(conn->ski, certificate->ski, KSSL_SKI_SIZE, KSSL_SKI_SIZE);
+			rc = ngx_memn2cmp(conn->ski, certificate->ski,
+				SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH);
 			if (rc < 0) {
 				node = node->left;
 				continue;
@@ -699,7 +790,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			conn->key.type = certificate->type;
 			conn->key.sig_len = certificate->sig_len;
 
-			ngx_memcpy(conn->ski, certificate->ski, KSSL_SKI_SIZE);
+			ngx_memcpy(conn->ski, certificate->ski, SHA_DIGEST_LENGTH);
 
 			chain = sk_X509_dup(certificate->chain);
 			if (!chain) {
@@ -740,7 +831,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 			ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
 				"found certificate in cache: \"%*s\"",
-				ngx_hex_dump(buf, conn->ski, KSSL_SKI_SIZE) - buf, buf);
+				ngx_hex_dump(buf, conn->ski, SHA_DIGEST_LENGTH) - buf, buf);
 
 			goto done;
 		}
@@ -749,7 +840,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 		ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
 			"did not find certificate in cache: \"%*s\"",
-			ngx_hex_dump(buf, conn->ski, KSSL_SKI_SIZE) - buf, buf);
+			ngx_hex_dump(buf, conn->ski, SHA_DIGEST_LENGTH) - buf, buf);
 
 		chain = sk_X509_new_null();
 		if (!chain) {
@@ -758,33 +849,33 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		}
 	}
 
-	while (CBS_len(&payload_cbs) != 0) {
-		if (!CBS_get_u8(&payload_cbs, &tag)
-			|| !CBS_get_u16_length_prefixed(&payload_cbs, &child_cbs)) {
+	while (CBS_len(&payload) != 0) {
+		if (!CBS_get_u8(&payload, &tag)
+			|| !CBS_get_u16_length_prefixed(&payload, &child)) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 				"get certificate format erorr");
 			goto error;
 		}
 
 		switch (tag) {
-			case NGX_HTTP_KEYLESS_TAG_LEAF:
-			case NGX_HTTP_KEYLESS_TAG_CHAIN:
-				if (tag == NGX_HTTP_KEYLESS_TAG_LEAF && leaf) {
+			case NGX_HTTP_KEYLESS_TAG_CERT_LEAF:
+			case NGX_HTTP_KEYLESS_TAG_CERT_CHAIN:
+				if (tag == NGX_HTTP_KEYLESS_TAG_CERT_LEAF && leaf) {
 					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 						"get certificate format erorr");
 					goto error;
 				}
 
-				p = CBS_data(&child_cbs);
+				p = CBS_data(&child);
 
-				x509 = d2i_X509(NULL, &p, CBS_len(&child_cbs));
+				x509 = d2i_X509(NULL, &p, CBS_len(&child));
 				if (!x509) {
 					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 						"d2i_X509(...) failed");
 					goto error;
 				}
 
-				if (tag == NGX_HTTP_KEYLESS_TAG_LEAF) {
+				if (tag == NGX_HTTP_KEYLESS_TAG_CERT_LEAF) {
 					leaf = x509;
 
 					if (!SSL_use_certificate(ssl, leaf)) {
@@ -871,7 +962,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 			ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
 				"remove certificate from cache: \"%*s\"",
-				ngx_hex_dump(buf, min_cert->ski, KSSL_SKI_SIZE) - buf, buf);
+				ngx_hex_dump(buf, min_cert->ski, SHA_DIGEST_LENGTH) - buf, buf);
 
 			sk_X509_pop_free(min_cert->chain, X509_free);
 			ngx_queue_remove(&min_cert->queue);
@@ -895,7 +986,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		certificate->type = conn->key.type;
 		certificate->sig_len = conn->key.sig_len;
 
-		ngx_memcpy(certificate->ski, conn->ski, KSSL_SKI_SIZE);
+		ngx_memcpy(certificate->ski, conn->ski, SHA_DIGEST_LENGTH);
 
 		ngx_memcpy(certificate->sid_ctx, ssl->sid_ctx, ssl->sid_ctx_length);
 		certificate->sid_ctx_len = ssl->sid_ctx_length;
@@ -907,7 +998,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 		ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
 			"inserted certificate into cache: \"%*s\"",
-			ngx_hex_dump(buf, conn->ski, KSSL_SKI_SIZE) - buf, buf);
+			ngx_hex_dump(buf, conn->ski, SHA_DIGEST_LENGTH) - buf, buf);
 	}
 
 done:
@@ -934,7 +1025,7 @@ error:
 	return 0;
 }
 
-static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et opcode,
+static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
 		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
 		size_t in_len)
 {
@@ -945,10 +1036,13 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 #if NGX_HAVE_INET6
 	const struct sockaddr_in6 *sin6;
 #endif
-	kssl_header_st header;
-	kssl_operation_st operation;
-	size_t length;
+	CBB payload, child;
+	uint8_t *p;
+	const uint8_t *sni, *ip;
+	size_t len, ip_len;
 	ngx_int_t rc;
+
+	CBB_zero(&payload);
 
 	ssl = c->ssl->connection;
 
@@ -980,52 +1074,73 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 	op->ev = c->write;
 	op->log = c->log;
 
-	header.version_maj = KSSL_VERSION_MAJ;
-	header.version_min = KSSL_VERSION_MIN;
-
 	do {
 		op->id = ngx_atomic_fetch_add(&conf->id, 1);
 	} while (!op->id);
 
-	header.id = op->id;
-
-	kssl_zero_operation(&operation);
-
-	operation.is_opcode_set = 1;
-	operation.opcode = opcode;
-
-	if (conn->key.type) {
-		operation.is_ski_set = 1;
-		operation.ski = conn->ski;
+	if (!CBB_init(&payload, 1024 + 3)
+		// header
+		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MAJOR)
+		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MINOR)
+		|| !CBB_add_u16(&payload, 0) // length placeholder
+		|| !CBB_add_u32(&payload, op->id)
+		// opcode tag
+		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
+		|| !CBB_add_u16_length_prefixed(&payload, &child)
+		|| !CBB_add_u8(&child, opcode)
+		// payload tag
+		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_PAYLOAD)
+		|| !CBB_add_u16_length_prefixed(&payload, &child)
+		|| !CBB_add_bytes(&child, in, in_len)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
 	}
 
-	operation.sni = (const unsigned char *)SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
-	if (operation.sni) {
-		operation.is_sni_set = 1;
-		operation.sni_len = ngx_strlen(operation.sni);
+	if (conn->key.type
+		// ski tag
+		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SKI)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_bytes(&child, conn->ski, SHA_DIGEST_LENGTH))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
 	}
 
-	operation.is_payload_set = 1;
-	operation.payload_len = in_len;
-	operation.payload = in;
+	sni = (const uint8_t *)SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	if (sni // sni tag
+		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SNI)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_bytes(&child, sni, ngx_strlen(sni)))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
+	}
 
 	switch (c->sockaddr->sa_family) {
 #if NGX_HAVE_INET6
 		case AF_INET6:
 			sin6 = (const struct sockaddr_in6 *)c->sockaddr;
 
-			operation.is_client_ip_set = 1;
-			operation.client_ip_len = 16;
-			operation.client_ip = (const unsigned char *)&sin6->sin6_addr.s6_addr[0];
+			ip_len = 16;
+			ip = (const uint8_t *)&sin6->sin6_addr.s6_addr[0];
 			break;
 #endif /* NGX_HAVE_INET6 */
 		case AF_INET:
 			sin = (const struct sockaddr_in *)c->sockaddr;
 
-			operation.is_client_ip_set = 1;
-			operation.client_ip_len = 4;
-			operation.client_ip = (const unsigned char *)&sin->sin_addr.s_addr;
+			ip_len = 4;
+			ip = (const uint8_t *)&sin->sin_addr.s_addr;
 			break;
+		default:
+			ip_len = 0;
+			break;
+	}
+
+	if (ip_len
+		// client ip tag
+		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_CLIENT_IP)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_bytes(&child, ip, ip_len))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
 	}
 
 	if (ngx_connection_local_sockaddr(c, NULL, 0) == NGX_OK) {
@@ -1034,45 +1149,62 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 			case AF_INET6:
 				sin6 = (const struct sockaddr_in6 *)c->local_sockaddr;
 
-				operation.is_server_ip_set = 1;
-				operation.server_ip_len = 16;
-				operation.server_ip
-					= (const unsigned char *)&sin6->sin6_addr.s6_addr[0];
+				ip_len = 16;
+				ip = (const uint8_t *)&sin6->sin6_addr.s6_addr[0];
 				break;
 #endif /* NGX_HAVE_INET6 */
 			case AF_INET:
 				sin = (const struct sockaddr_in *)c->local_sockaddr;
 
-				operation.is_server_ip_set = 1;
-				operation.server_ip_len = 4;
-				operation.server_ip = (const unsigned char *)&sin->sin_addr.s_addr;
+				ip_len = 4;
+				ip = (const uint8_t *)&sin->sin_addr.s_addr;
 				break;
+			default:
+				ip_len = 0;
+				break;
+		}
+
+		if (ip_len
+			// server ip tag
+			&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SERVER_IP)
+				|| !CBB_add_u16_length_prefixed(&payload, &child)
+				|| !CBB_add_bytes(&child, ip, ip_len))) {
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+			goto error;
 		}
 	} else {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_connection_local_sockaddr failed");
 	}
 
-	length = kssl_flatten_operation(&header, &operation, NULL);
-	if (!length) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "kssl_flatten_operation failed");
+	if (!CBB_flush(&payload)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_flush failed");
 		goto error;
 	}
 
-	op->send.start = ngx_pcalloc(conf->pool, length);
-	if (!op->send.start) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0,
-			"ngx_palloc failed to allocated recv buffer");
+	len = CBB_len(&payload);
+	if (len < NGX_HTTP_KEYLESS_PAD_TO) {
+		// padding tag
+		if (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_PADDING)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_space(&child, &p, NGX_HTTP_KEYLESS_PAD_TO - len)) {
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+			goto error;
+		}
+
+		ngx_memzero(p, NGX_HTTP_KEYLESS_PAD_TO - len);
+	}
+
+	if (!CBB_finish(&payload, &p, &len)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_finish failed");
 		goto error;
 	}
 
-	op->send.pos = op->send.start;
-	op->send.last = op->send.start + length;
-	op->send.end = op->send.start + length;
+	*(uint16_t *)(p + 2) = htons(len - NGX_HTTP_KEYLESS_HEADER_LENGTH); // set length
 
-	if (!kssl_flatten_operation(&header, &operation, op->send.pos)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "kssl_flatten_operation failed");
-		goto error;
-	}
+	op->send.start = p;
+	op->send.pos = p;
+	op->send.last = p + len;
+	op->send.end = p + len;
 
 	if (conf->timeout) {
 		op->timer.handler = ngx_http_keyless_operation_timeout_handler;
@@ -1096,13 +1228,17 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 
 	conf->pc.connection->write->handler(conf->pc.connection->write);
 
+	CBB_cleanup(&payload);
+
 	return op;
 
 error:
+	CBB_cleanup(&payload);
+
 	if (op) {
 		if (op->send.start) {
 			OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
-			ngx_pfree(conf->pool, op->send.start);
+			OPENSSL_free(op->send.start);
 		}
 
 		ngx_pfree(conf->pool, op);
@@ -1112,12 +1248,14 @@ error:
 }
 
 static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_http_keyless_op_t *op,
-		const uint8_t **out, size_t *out_len)
+		CBS *out)
 {
-	kssl_header_st header;
-	kssl_operation_st operation;
+	ngx_http_keyless_operation_t opcode = 0;
+	uint8_t tag;
+	CBS msg, child, payload;
+	int saw_opcode = 0, saw_payload = 0, saw_padding = 0;
 
-	if (op->recv.last - op->recv.pos < (ssize_t)KSSL_HEADER_SIZE) {
+	if (op->recv.last - op->recv.pos < NGX_HTTP_KEYLESS_HEADER_LENGTH) {
 		if (op->timer.timedout) {
 			ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless operation timed out");
 			return ssl_private_key_failure;
@@ -1126,67 +1264,112 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		return ssl_private_key_retry;
 	}
 
-	assert(kssl_parse_header(op->recv.pos, &header));
-	assert(header.version_maj == KSSL_VERSION_MAJ);
-	assert(header.id == op->id);
+	CBS_init(&msg, op->recv.pos + NGX_HTTP_KEYLESS_HEADER_LENGTH,
+		op->recv.last - op->recv.pos - NGX_HTTP_KEYLESS_HEADER_LENGTH);
 
-	op->recv.pos += KSSL_HEADER_SIZE;
+	while (CBS_len(&msg) != 0) {
+		if (!CBS_get_u8(&msg, &tag)
+			|| !CBS_get_u16_length_prefixed(&msg, &child)) {
+			ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+			return ssl_private_key_failure;
+		}
 
-	if (!kssl_parse_message_payload(op->recv.pos, header.length, &operation)) {
-		ngx_log_error(NGX_LOG_ERR, op->log, 0, "kssl_parse_message_payload failed");
+		switch (tag) {
+			case NGX_HTTP_KEYLESS_TAG_OPCODE:
+				if (saw_opcode) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
+				}
+
+				if (!CBS_get_u8(&child, (uint8_t *)&opcode)
+					|| CBS_len(&child) != 0) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+					return ssl_private_key_failure;
+				}
+
+				saw_opcode = 1;
+				break;
+			case NGX_HTTP_KEYLESS_TAG_PAYLOAD:
+				if (saw_payload) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
+				}
+
+				payload = child;
+				saw_payload = 1;
+				break;
+			case NGX_HTTP_KEYLESS_TAG_PADDING:
+				if (saw_padding) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
+				}
+
+				// ignore; should this be checked to ensure it is zero?
+				saw_padding = 1;
+				break;
+			case NGX_HTTP_KEYLESS_TAG_DIGEST:
+			case NGX_HTTP_KEYLESS_TAG_SNI:
+			case NGX_HTTP_KEYLESS_TAG_CLIENT_IP:
+			case NGX_HTTP_KEYLESS_TAG_SKI:
+			case NGX_HTTP_KEYLESS_TAG_SERVER_IP:
+				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless: unexpected tag");
+				return ssl_private_key_failure;
+			default:
+				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless: unrecognised tag");
+				return ssl_private_key_failure;
+		}
+	}
+
+	if (!saw_opcode || !saw_payload) {
+		ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+			ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
 		return ssl_private_key_failure;
 	}
 
-	op->recv.pos += header.length;
-
-	if (op->recv.last != op->recv.pos) {
-		ngx_log_error(NGX_LOG_ERR, op->log, 0, "trailing data recieved");
-	}
-
-	switch (operation.opcode) {
-		case KSSL_OP_RESPONSE:
-			*out = operation.payload;
-			*out_len = operation.payload_len;
-
+	switch (opcode) {
+		case NGX_HTTP_KEYLESS_OP_RESPONSE:
+			*out = payload;
 			return ssl_private_key_success;
-		case KSSL_OP_ERROR:
-			if (operation.payload_len == 1) {
-				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless error: %s",
-					kssl_error_string(operation.payload[0]));
-
-				op->error = operation.payload[0];
-			} else {
-				ngx_log_error(NGX_LOG_ERR, op->log, 0, "unkown keyless error");
+		case NGX_HTTP_KEYLESS_OP_ERROR:
+			if (!CBS_get_u8(&payload, (uint8_t *)&op->error)
+				|| CBS_len(&payload) != 0) {
+				ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed or format error");
+				return ssl_private_key_failure;
 			}
 
+			ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless error: %s",
+				ngx_http_keyless_error_string(op->error));
 			return ssl_private_key_failure;
-		case KSSL_OP_RSA_DECRYPT:
-		case KSSL_OP_RSA_DECRYPT_RAW:
-		case KSSL_OP_RSA_SIGN_MD5SHA1:
-		case KSSL_OP_RSA_SIGN_SHA1:
-		case KSSL_OP_RSA_SIGN_SHA224:
-		case KSSL_OP_RSA_SIGN_SHA256:
-		case KSSL_OP_RSA_SIGN_SHA384:
-		case KSSL_OP_RSA_SIGN_SHA512:
-		case KSSL_OP_RSA_PSS_SIGN_SHA256:
-		case KSSL_OP_RSA_PSS_SIGN_SHA384:
-		case KSSL_OP_RSA_PSS_SIGN_SHA512:
-		case KSSL_OP_ECDSA_SIGN_MD5SHA1:
-		case KSSL_OP_ECDSA_SIGN_SHA1:
-		case KSSL_OP_ECDSA_SIGN_SHA224:
-		case KSSL_OP_ECDSA_SIGN_SHA256:
-		case KSSL_OP_ECDSA_SIGN_SHA384:
-		case KSSL_OP_ECDSA_SIGN_SHA512:
-		case KSSL_OP_GET_CERTIFICATE:
-		case KSSL_OP_PING:
-		case KSSL_OP_PONG:
-		case KSSL_OP_ACTIVATE:
-			ngx_log_error(NGX_LOG_ERR, op->log, 0,
-				kssl_error_string(KSSL_ERROR_UNEXPECTED_OPCODE));
+		case NGX_HTTP_KEYLESS_OP_RSA_DECRYPT:
+		case NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW:
+		case NGX_HTTP_KEYLESS_OP_RSA_SIGN_MD5SHA1:
+		case NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA1:
+		case NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA224:
+		case NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA256:
+		case NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA384:
+		case NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA512:
+		case NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA256:
+		case NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA384:
+		case NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA512:
+		case NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_MD5SHA1:
+		case NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA1:
+		case NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA224:
+		case NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA256:
+		case NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA384:
+		case NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA512:
+		case NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE:
+		case NGX_HTTP_KEYLESS_OP_PING:
+		case NGX_HTTP_KEYLESS_OP_PONG:
+		case NGX_HTTP_KEYLESS_OP_ACTIVATE:
+			ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+				ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_UNEXPECTED_OPCODE));
 			return ssl_private_key_failure;
 		default:
-			ngx_log_error(NGX_LOG_ERR, op->log, 0,
-				kssl_error_string(KSSL_ERROR_BAD_OPCODE));
+			ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+				ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_BAD_OPCODE));
 			return ssl_private_key_failure;
 	}
 }
@@ -1199,6 +1382,16 @@ static void ngx_http_keyless_cleanup_operation(ngx_http_keyless_op_t *op)
 
 	if (op->timer.handler) {
 		ngx_del_timer(&op->timer);
+	}
+
+	if (op->send.start) {
+		OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
+		OPENSSL_free(op->send.start);
+
+		op->send.start = NULL;
+		op->send.pos = NULL;
+		op->send.last = NULL;
+		op->send.end = NULL;
 	}
 
 	if (op->recv.start) {
@@ -1231,8 +1424,11 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 	ngx_http_keyless_op_t *op;
 	ngx_queue_t *q;
 	ngx_buf_t recv;
-	kssl_header_st header;
 	ssize_t size;
+	CBS payload;
+	uint8_t vers;
+	uint16_t length;
+	uint32_t id;
 
 	c = rev->data;
 	conf = c->data;
@@ -1258,19 +1454,20 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		goto cleanup;
 	}
 
-	if (recv.last - recv.pos < (ssize_t)KSSL_HEADER_SIZE) {
+	if (recv.last - recv.pos < NGX_HTTP_KEYLESS_HEADER_LENGTH) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "truncated packet");
 		goto cleanup;
 	}
 
-	if (!kssl_parse_header(recv.pos, &header)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "kssl_parse_header failed");
-		goto cleanup;
-	}
+	CBS_init(&payload, recv.pos, recv.last - recv.pos);
 
-	if (header.version_maj != KSSL_VERSION_MAJ) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0,
-			kssl_error_string(KSSL_ERROR_VERSION_MISMATCH));
+	if (!CBS_get_u8(&payload, &vers)
+		|| vers != NGX_HTTP_KEYLESS_VERSION_MAJOR
+		|| !CBS_skip(&payload, 1)
+		|| !CBS_get_u16(&payload, &length)
+		|| !CBS_get_u32(&payload, &id)
+		|| length != CBS_len(&payload)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_* failed or format error");
 		goto cleanup;
 	}
 
@@ -1279,7 +1476,7 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		q = ngx_queue_next(q)) {
 		op = ngx_queue_data(q, ngx_http_keyless_op_t, recv_queue);
 
-		if (op->id != header.id) {
+		if (op->id != id) {
 			continue;
 		}
 
@@ -1291,7 +1488,7 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		return;
 	}
 
-	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id: %ud", header.id);
+	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id: %ud", id);
 
 cleanup:
 	ngx_pfree(c->pool, recv.start);
@@ -1334,7 +1531,7 @@ static void ngx_http_keyless_socket_write_handler(ngx_event_t *wev)
 	}
 
 	OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
-	ngx_pfree(c->pool, op->send.start);
+	OPENSSL_free(op->send.start);
 
 	op->send.start = NULL;
 	op->send.pos = NULL;
@@ -1392,7 +1589,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
 		const uint8_t *in, size_t in_len)
 {
-	kssl_opcode_et opcode;
+	ngx_http_keyless_operation_t opcode;
 	ngx_connection_t *c;
 	ngx_http_keyless_conn_t *conn;
 	const EVP_MD *md;
@@ -1401,30 +1598,30 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 
 	switch (signature_algorithm) {
 		case SSL_SIGN_RSA_PKCS1_MD5_SHA1:
-			opcode = KSSL_OP_RSA_SIGN_MD5SHA1;
+			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_MD5SHA1;
 			md = EVP_md5_sha1();
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA1:
 		case SSL_SIGN_ECDSA_SHA1:
-			opcode = KSSL_OP_RSA_SIGN_SHA1;
+			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA1;
 			md = EVP_sha1();
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA256:
 		case SSL_SIGN_ECDSA_SECP256R1_SHA256:
 		case SSL_SIGN_RSA_PSS_SHA256:
-			opcode = KSSL_OP_RSA_SIGN_SHA256;
+			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA256;
 			md = EVP_sha256();
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA384:
 		case SSL_SIGN_ECDSA_SECP384R1_SHA384:
 		case SSL_SIGN_RSA_PSS_SHA384:
-			opcode = KSSL_OP_RSA_SIGN_SHA384;
+			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA384;
 			md = EVP_sha384();
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA512:
 		case SSL_SIGN_ECDSA_SECP521R1_SHA512:
 		case SSL_SIGN_RSA_PSS_SHA512:
-			opcode = KSSL_OP_RSA_SIGN_SHA512;
+			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA512;
 			md = EVP_sha512();
 			break;
 		default:
@@ -1436,12 +1633,12 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 		case SSL_SIGN_ECDSA_SECP256R1_SHA256:
 		case SSL_SIGN_ECDSA_SECP384R1_SHA384:
 		case SSL_SIGN_ECDSA_SECP521R1_SHA512:
-			opcode |= KSSL_OP_ECDSA_MASK;
+			opcode |= NGX_HTTP_KEYLESS_OP_ECDSA_MASK;
 			break;
 		case SSL_SIGN_RSA_PSS_SHA256:
 		case SSL_SIGN_RSA_PSS_SHA384:
 		case SSL_SIGN_RSA_PSS_SHA512:
-			opcode |= KSSL_OP_RSA_PSS_MASK;
+			opcode |= NGX_HTTP_KEYLESS_OP_RSA_PSS_MASK;
 			break;
 	}
 
@@ -1459,7 +1656,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 	conn->op = ngx_http_keyless_start_operation(opcode, c, conn, hash, hash_len);
 	if (!conn->op) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_start_operation(%s) failed", kssl_op_string(opcode));
+			"ngx_http_keyless_start_operation(...) failed");
 		return ssl_private_key_failure;
 	}
 
@@ -1479,10 +1676,11 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t
 		return ssl_private_key_failure;
 	}
 
-	conn->op = ngx_http_keyless_start_operation(KSSL_OP_RSA_DECRYPT_RAW, c, conn, in, in_len);
+	conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW, c, conn,
+		in, in_len);
 	if (!conn->op) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_start_operation(KSSL_OP_RSA_DECRYPT_RAW) failed");
+			"ngx_http_keyless_start_operation(...) failed");
 		return ssl_private_key_failure;
 	}
 
@@ -1494,8 +1692,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 {
 	const ngx_connection_t *c;
 	const ngx_http_keyless_conn_t *conn;
-	const uint8_t *tmp;
-	size_t tmp_len;
+	CBS payload;
 	enum ssl_private_key_result_t rc;
 
 	c = ngx_ssl_get_connection(ssl_conn);
@@ -1505,23 +1702,51 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 		return ssl_private_key_failure;
 	}
 
-	rc = ngx_http_keyless_operation_complete(conn->op, &tmp, &tmp_len);
+	rc = ngx_http_keyless_operation_complete(conn->op, &payload);
 	if (rc == ssl_private_key_retry) {
 		return rc;
 	}
 
 	if (rc == ssl_private_key_success) {
-		if (tmp_len > max_out) {
+		*out_len = CBS_len(&payload);
+
+		if (CBS_len(&payload) > max_out) {
 			ngx_log_error(NGX_LOG_ERR, c->log, 0, "payload longer than max_out");
-		} else {
-			ngx_memcpy(out, tmp, tmp_len);
-			*out_len = tmp_len;
+		} else if (!CBS_copy_bytes(&payload, out, CBS_len(&payload))) {
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_copy_bytes failed");
 		}
 	}
 
 	ngx_http_keyless_cleanup_operation(conn->op);
-
 	return rc;
+}
+
+static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error)
+{
+	switch (error) {
+		case NGX_HTTP_KEYLESS_ERROR_NONE:
+			return "no error";
+		case NGX_HTTP_KEYLESS_ERROR_CRYPTO_FAILED:
+			return "cryptography error";
+		case NGX_HTTP_KEYLESS_ERROR_KEY_NOT_FOUND:
+			return "key not found";
+		case NGX_HTTP_KEYLESS_ERROR_DISK_READ:
+			return "disk read failure";
+		case NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH:
+			return "version mismatch";
+		case NGX_HTTP_KEYLESS_ERROR_BAD_OPCODE:
+			return "bad opcode";
+		case NGX_HTTP_KEYLESS_ERROR_UNEXPECTED_OPCODE:
+			return "unexpected opcode";
+		case NGX_HTTP_KEYLESS_ERROR_FORMAT:
+			return "malformed message";
+		case NGX_HTTP_KEYLESS_ERROR_INTERNAL:
+			return "internal error";
+		case NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND:
+			return "certificate not found";
+		default:
+			return "unkown error";
+	}
 }
 
 /* this is ngx_ssl_session_id_context from nginx-1.9.15/src/event/ngx_event_openssl.c */
