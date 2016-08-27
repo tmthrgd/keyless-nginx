@@ -1058,7 +1058,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(kssl_opcode_et op
 		goto error;
 	}
 
-	op->send.start = ngx_palloc(conf->pool, length);
+	op->send.start = ngx_pcalloc(conf->pool, length);
 	if (!op->send.start) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0,
 			"ngx_palloc failed to allocated recv buffer");
