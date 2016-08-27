@@ -781,7 +781,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				x509 = d2i_X509(NULL, &p, CBS_len(&child_cbs));
 				if (!x509) {
 					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"d2i_X509_bio(...) failed");
+						"d2i_X509(...) failed");
 					goto error;
 				}
 
