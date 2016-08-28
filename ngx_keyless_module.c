@@ -576,52 +576,6 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| !CBB_add_bytes(&child_cbb, CBS_data(&sig_algs), CBS_len(&sig_algs))) {
 			goto cleanup;
 		}
-
-		if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_supported_groups,
-				&extension_data, &extension_len)) {
-			CBS_init(&extension, extension_data, extension_len);
-
-			if (!CBS_get_u16_length_prefixed(&extension, &supported_groups)
-				|| CBS_len(&supported_groups) == 0
-				|| CBS_len(&extension) != 0
-				|| CBS_len(&supported_groups) % 2 != 0
-				|| !CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
-				|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-				|| !CBB_add_bytes(&child_cbb, CBS_data(&supported_groups),
-					CBS_len(&supported_groups))) {
-				goto cleanup;
-			}
-		} else {
-			/* Clients are not required to send a supported_curves extension. In this
-			 * case, the server is free to pick any curve it likes. See RFC 4492,
-			 * section 4, paragraph 3. */
-			if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
-				|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-				|| !CBB_add_u16(&child_cbb, SSL_CURVE_SECP256R1)) {
-				goto cleanup;
-			}
-		}
-
-		CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
-
-		while (CBS_len(&cipher_suites) != 0) {
-			if (!CBS_get_u16(&cipher_suites, &cipher_suite)) {
-				goto cleanup;
-			}
-
-			cipher = SSL_get_cipher_by_value(cipher_suite);
-			if (cipher && SSL_CIPHER_is_ECDSA(cipher)
-				&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
-					NULL, cipher)) {
-				if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
-					|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-					|| !CBB_add_u8(&child_cbb, 0xff)) {
-					goto cleanup;
-				}
-
-				break;
-			}
-		}
 	} else {
 		if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS)
 			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
@@ -630,6 +584,52 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| !CBB_add_u8(&child_cbb, TLSEXT_hash_sha1)
 			|| !CBB_add_u8(&child_cbb, TLSEXT_signature_rsa)) {
 			goto cleanup;
+		}
+	}
+
+	if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_supported_groups,
+			&extension_data, &extension_len)) {
+		CBS_init(&extension, extension_data, extension_len);
+
+		if (!CBS_get_u16_length_prefixed(&extension, &supported_groups)
+			|| CBS_len(&supported_groups) == 0
+			|| CBS_len(&extension) != 0
+			|| CBS_len(&supported_groups) % 2 != 0
+			|| !CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
+			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+			|| !CBB_add_bytes(&child_cbb, CBS_data(&supported_groups),
+				CBS_len(&supported_groups))) {
+			goto cleanup;
+		}
+	} else {
+		/* Clients are not required to send a supported_curves extension. In this
+		 * case, the server is free to pick any curve it likes. See RFC 4492,
+		 * section 4, paragraph 3. */
+		if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
+			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+			|| !CBB_add_u16(&child_cbb, SSL_CURVE_SECP256R1)) {
+			goto cleanup;
+		}
+	}
+
+	CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
+
+	while (CBS_len(&cipher_suites) != 0) {
+		if (!CBS_get_u16(&cipher_suites, &cipher_suite)) {
+			goto cleanup;
+		}
+
+		cipher = SSL_get_cipher_by_value(cipher_suite);
+		if (cipher && SSL_CIPHER_is_ECDSA(cipher)
+			&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
+				NULL, cipher)) {
+			if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
+				|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
+				|| !CBB_add_u8(&child_cbb, 0xff)) {
+				goto cleanup;
+			}
+
+			break;
 		}
 	}
 
