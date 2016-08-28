@@ -1684,7 +1684,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 
 	rc = ngx_http_keyless_operation_complete(conn->op, &payload);
 	if (rc == ssl_private_key_retry) {
-		return rc;
+		return ssl_private_key_retry;
 	}
 
 	if (rc == ssl_private_key_success) {
@@ -1692,8 +1692,10 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 
 		if (CBS_len(&payload) > max_out) {
 			ngx_log_error(NGX_LOG_ERR, c->log, 0, "payload longer than max_out");
+			rc = ssl_private_key_failure;
 		} else if (!CBS_copy_bytes(&payload, out, CBS_len(&payload))) {
 			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_copy_bytes failed");
+			rc = ssl_private_key_failure;
 		}
 	}
 
