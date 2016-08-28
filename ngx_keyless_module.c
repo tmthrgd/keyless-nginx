@@ -40,16 +40,6 @@ enum {
 };
 
 enum {
-	// NGX_HTTP_KEYLESS_TAG_CERT_SKI (1) must occur first.
-	NGX_HTTP_KEYLESS_TAG_CERT_SKI   = 0x01,
-	// NGX_HTTP_KEYLESS_TAG_CERT_LEAF (2) must occur only once.
-	NGX_HTTP_KEYLESS_TAG_CERT_LEAF  = 0x02,
-	// NGX_HTTP_KEYLESS_TAG_CERT_CHAIN (3) will occur once, in order,
-	// for each extra certificate in the chain.
-	NGX_HTTP_KEYLESS_TAG_CERT_CHAIN = 3
-};
-
-enum {
 	// [Deprecated]: SHA256 hash of RSA public key
 	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x01,
 	// Server Name Identifier
@@ -163,6 +153,7 @@ typedef struct {
 	unsigned int id;
 
 	ngx_http_keyless_error_t error;
+	const uint8_t *ski;
 
 	ngx_log_t *log;
 
@@ -678,7 +669,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SSL *ssl;
 	const unsigned char *p;
 	CBS payload, child;
-	uint8_t tag;
 	X509 *leaf = NULL, *x509;
 	EVP_PKEY *public_key = NULL;
 	ngx_slab_pool_t *shpool = NULL /* 'may be used uninitialized' warning */;
@@ -740,15 +730,13 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			break;
 	}
 
-	if (!CBS_get_u8(&payload, &tag)
-		|| tag != NGX_HTTP_KEYLESS_TAG_CERT_SKI
-		|| !CBS_get_u16_length_prefixed(&payload, &child)
-		|| CBS_len(&child) != SHA_DIGEST_LENGTH
-		|| !CBS_copy_bytes(&child, conn->ski, CBS_len(&child))) {
+	if (!conn->op->ski) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 			"get certificate format erorr");
 		goto error;
 	}
+
+	ngx_memcpy(conn->ski, conn->op->ski, SHA_DIGEST_LENGTH);
 
 	SSL_certs_clear(ssl);
 	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
@@ -789,8 +777,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 			conn->key.type = certificate->type;
 			conn->key.sig_len = certificate->sig_len;
-
-			ngx_memcpy(conn->ski, certificate->ski, SHA_DIGEST_LENGTH);
 
 			chain = sk_X509_dup(certificate->chain);
 			if (!chain) {
@@ -850,65 +836,51 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	}
 
 	while (CBS_len(&payload) != 0) {
-		if (!CBS_get_u8(&payload, &tag)
-			|| !CBS_get_u16_length_prefixed(&payload, &child)) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"get certificate format erorr");
+		if (!CBS_get_u16_length_prefixed(&payload, &child)) {
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
 			goto error;
 		}
 
-		switch (tag) {
-			case NGX_HTTP_KEYLESS_TAG_CERT_LEAF:
-			case NGX_HTTP_KEYLESS_TAG_CERT_CHAIN:
-				if (tag == NGX_HTTP_KEYLESS_TAG_CERT_LEAF && leaf) {
-					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"get certificate format erorr");
-					goto error;
-				}
+		p = CBS_data(&child);
 
-				p = CBS_data(&child);
-
-				x509 = d2i_X509(NULL, &p, CBS_len(&child));
-				if (!x509) {
-					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"d2i_X509(...) failed");
-					goto error;
-				}
-
-				if (tag == NGX_HTTP_KEYLESS_TAG_CERT_LEAF) {
-					leaf = x509;
-
-					if (!SSL_use_certificate(ssl, leaf)) {
-						X509_free(leaf);
-
-						ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-							"SSL_use_certificate(...) failed");
-						goto error;
-					}
-				} else if (!SSL_add1_chain_cert(ssl, x509)) {
-					X509_free(x509);
-
-					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"SSL_add_extra_chain_cert(...) failed");
-					goto error;
-				}
-
-				if (!chain) {
-					X509_free(x509);
-				} else if (sk_X509_push(chain, x509) == 0) {
-					X509_free(x509);
-
-					ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-						"sk_X509_push(...) failed");
-					goto error;
-				}
-
-				break;
-			default:
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"get certificate format erorr");
-				goto error;
+		x509 = d2i_X509(NULL, &p, CBS_len(&child));
+		if (!x509) {
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "d2i_X509(...) failed");
+			goto error;
 		}
+
+		if (!leaf) {
+			leaf = x509;
+
+			if (!SSL_use_certificate(ssl, leaf)) {
+				X509_free(leaf);
+
+				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+					"SSL_use_certificate(...) failed");
+				goto error;
+			}
+		} else if (!SSL_add1_chain_cert(ssl, x509)) {
+			X509_free(x509);
+
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+				"SSL_add_extra_chain_cert(...) failed");
+			goto error;
+		}
+
+		if (!chain) {
+			X509_free(x509);
+		} else if (sk_X509_push(chain, x509) == 0) {
+			X509_free(x509);
+
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+				"sk_X509_push(...) failed");
+			goto error;
+		}
+	}
+
+	if (!leaf) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
+		goto error;
 	}
 
 	public_key = X509_get_pubkey(leaf);
@@ -1310,10 +1282,18 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				// ignore; should this be checked to ensure it is zero?
 				saw_padding = 1;
 				break;
+			case NGX_HTTP_KEYLESS_TAG_SKI:
+				if (op->ski || CBS_len(&child) != SHA_DIGEST_LENGTH) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
+				}
+
+				op->ski = CBS_data(&child);
+				break;
 			case NGX_HTTP_KEYLESS_TAG_DIGEST:
 			case NGX_HTTP_KEYLESS_TAG_SNI:
 			case NGX_HTTP_KEYLESS_TAG_CLIENT_IP:
-			case NGX_HTTP_KEYLESS_TAG_SKI:
 			case NGX_HTTP_KEYLESS_TAG_SERVER_IP:
 				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless: unexpected tag");
 				return ssl_private_key_failure;
