@@ -520,7 +520,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	uint16_t cipher_suite;
 	const SSL_CIPHER *cipher;
 	ngx_connection_t *c;
-	ngx_http_keyless_conn_t *conn = NULL;
+	ngx_http_keyless_conn_t *conn;
+	ngx_pool_cleanup_t *cln;
 
 	c = ngx_ssl_get_connection(ctx->ssl);
 
@@ -549,7 +550,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			&extension_data, &extension_len)) {
 		CBS_init(&extension, extension_data, extension_len);
 
-		if (!CBS_get_u16_length_prefixed(&extension, &sig_algs)
+		cln = ngx_pool_cleanup_add(c->pool, 0);
+		if (!cln || !CBS_get_u16_length_prefixed(&extension, &sig_algs)
 			|| CBS_len(&sig_algs) == 0
 			|| CBS_len(&extension) != 0
 			|| CBS_len(&sig_algs) % 2 != 0
@@ -557,6 +559,9 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 				&conn->get_cert.sig_algs_len)) {
 			return 0;
 		}
+
+		cln->handler = OPENSSL_free;
+		cln->data = conn->get_cert.sig_algs;
 	}
 
 	return 1;
@@ -597,9 +602,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE,
 			c, conn, NULL, 0);
 
-		OPENSSL_free(conn->get_cert.sig_algs);
 		conn->get_cert.sig_algs = NULL;
-
 		conn->get_cert.ecdsa_cipher = 0;
 
 		if (!conn->op) {
