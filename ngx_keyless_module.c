@@ -34,12 +34,6 @@
 #endif /* SSL_CURVE_SECP256R1 */
 
 enum {
-	NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS = 0x01,
-	NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS     = 0x02,
-	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER         = 0x03
-};
-
-enum {
 	// [Deprecated]: SHA256 hash of RSA public key
 	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x01,
 	// Server Name Identifier
@@ -50,12 +44,20 @@ enum {
 	NGX_HTTP_KEYLESS_TAG_SKI       = 0x04,
 	// Server IP Address
 	NGX_HTTP_KEYLESS_TAG_SERVER_IP = 0x05,
+	// Signature Algorithms
+	NGX_HTTP_KEYLESS_TAG_SIG_ALGS  = 0x06,
 	// Request operation code (see ngx_http_keyless_operation_t)
 	NGX_HTTP_KEYLESS_TAG_OPCODE    = 0x11,
 	// Request payload
 	NGX_HTTP_KEYLESS_TAG_PAYLOAD   = 0x12,
 	// Padding
 	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x20,
+
+	// The range [0xc0, 0xff) is reserved for private tags.
+	// Supported groups
+	NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS = 0xc0,
+	// One iff ECDSA ciphers are supported
+	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER     = 0xc1,
 };
 
 typedef enum {
@@ -167,15 +169,22 @@ typedef struct {
 typedef struct {
 	ngx_http_keyless_op_t *op;
 
-	uint8_t *payload;
-	size_t payload_len;
-
 	struct {
 		int type;
 		size_t sig_len;
 	} key;
 
 	unsigned char ski[SHA_DIGEST_LENGTH];
+
+	struct {
+		uint8_t *sig_algs;
+		size_t sig_algs_len;
+
+		uint8_t *supported_groups;
+		size_t supported_groups_len;
+
+		uint8_t ecdsa_cipher;
+	} get_cert;
 } ngx_http_keyless_conn_t;
 
 typedef struct {
@@ -522,14 +531,12 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	uint8_t name_type;
 	const SSL_CIPHER *cipher;
 	char *server_name = NULL;
-	CBB payload_cbb, child_cbb;
 	int rc = -1;
 	ngx_connection_t *c;
-	ngx_http_keyless_conn_t *conn;
+	ngx_http_keyless_conn_t *conn = NULL;
+	CBB payload_cbb;
 
-	if (!CBB_init(&payload_cbb, 256)) {
-		goto cleanup;
-	}
+	CBB_zero(&payload_cbb);
 
 	has_server_name = SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_server_name,
 		&extension_data, &extension_len);
@@ -563,6 +570,17 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		}
 	}
 
+	c = ngx_ssl_get_connection(ctx->ssl);
+
+	conn = ngx_pcalloc(c->pool, sizeof(ngx_http_keyless_conn_t));
+	if (!conn) {
+		goto cleanup;
+	}
+
+	if (!SSL_set_ex_data(c->ssl->connection, g_ssl_exdata_conn_index, conn)) {
+		goto cleanup;
+	}
+
 	if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_signature_algorithms,
 			&extension_data, &extension_len)) {
 		CBS_init(&extension, extension_data, extension_len);
@@ -571,18 +589,18 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| CBS_len(&sig_algs) == 0
 			|| CBS_len(&extension) != 0
 			|| CBS_len(&sig_algs) % 2 != 0
-			|| !CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS)
-			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-			|| !CBB_add_bytes(&child_cbb, CBS_data(&sig_algs), CBS_len(&sig_algs))) {
+			|| !CBS_stow(&sig_algs, &conn->get_cert.sig_algs,
+				&conn->get_cert.sig_algs_len)) {
 			goto cleanup;
 		}
 	} else {
-		if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SIGNATURE_ALGORITHMS)
-			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-			|| (has_server_name && !CBB_add_u8(&child_cbb, TLSEXT_hash_sha256))
-			|| (has_server_name && !CBB_add_u8(&child_cbb, TLSEXT_signature_rsa))
-			|| !CBB_add_u8(&child_cbb, TLSEXT_hash_sha1)
-			|| !CBB_add_u8(&child_cbb, TLSEXT_signature_rsa)) {
+		if (!CBB_init(&payload_cbb, 4)
+			|| (has_server_name && !CBB_add_u8(&payload_cbb, TLSEXT_hash_sha256))
+			|| (has_server_name && !CBB_add_u8(&payload_cbb, TLSEXT_signature_rsa))
+			|| !CBB_add_u8(&payload_cbb, TLSEXT_hash_sha1)
+			|| !CBB_add_u8(&payload_cbb, TLSEXT_signature_rsa)
+			|| !CBB_finish(&payload_cbb, &conn->get_cert.sig_algs,
+				&conn->get_cert.sig_algs_len)) {
 			goto cleanup;
 		}
 	}
@@ -595,19 +613,18 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| CBS_len(&supported_groups) == 0
 			|| CBS_len(&extension) != 0
 			|| CBS_len(&supported_groups) % 2 != 0
-			|| !CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
-			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-			|| !CBB_add_bytes(&child_cbb, CBS_data(&supported_groups),
-				CBS_len(&supported_groups))) {
+			|| !CBS_stow(&supported_groups, &conn->get_cert.supported_groups,
+				&conn->get_cert.supported_groups_len)) {
 			goto cleanup;
 		}
 	} else {
 		/* Clients are not required to send a supported_curves extension. In this
 		 * case, the server is free to pick any curve it likes. See RFC 4492,
 		 * section 4, paragraph 3. */
-		if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
-			|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-			|| !CBB_add_u16(&child_cbb, SSL_CURVE_SECP256R1)) {
+		if (!CBB_init(&payload_cbb, 2)
+			|| !CBB_add_u16(&payload_cbb, SSL_CURVE_SECP256R1)
+			|| !CBB_finish(&payload_cbb, &conn->get_cert.supported_groups,
+				&conn->get_cert.supported_groups_len)) {
 			goto cleanup;
 		}
 	}
@@ -623,35 +640,25 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		if (cipher && SSL_CIPHER_is_ECDSA(cipher)
 			&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
 				NULL, cipher)) {
-			if (!CBB_add_u8(&payload_cbb, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
-				|| !CBB_add_u16_length_prefixed(&payload_cbb, &child_cbb)
-				|| !CBB_add_u8(&child_cbb, 0xff)) {
-				goto cleanup;
-			}
-
+			conn->get_cert.ecdsa_cipher = 1;
 			break;
 		}
-	}
-
-	c = ngx_ssl_get_connection(ctx->ssl);
-
-	conn = ngx_pcalloc(c->pool, sizeof(ngx_http_keyless_conn_t));
-	if (!conn) {
-		goto cleanup;
-	}
-
-	if (!SSL_set_ex_data(c->ssl->connection, g_ssl_exdata_conn_index, conn)) {
-		goto cleanup;
-	}
-
-	if (!CBB_finish(&payload_cbb, &conn->payload, &conn->payload_len)) {
-		goto cleanup;
 	}
 
 	rc = 1;
 
 cleanup:
 	CBB_cleanup(&payload_cbb);
+
+	if (!rc && conn) {
+		if (conn->get_cert.sig_algs) {
+			OPENSSL_free(conn->get_cert.sig_algs);
+		}
+
+		if (conn->get_cert.supported_groups) {
+			OPENSSL_free(conn->get_cert.supported_groups);
+		}
+	}
 
 	if (server_name) {
 		ctx->ssl->tlsext_hostname = NULL;
@@ -693,10 +700,16 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	}
 
 	if (!conn->op) {
-		conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE, c,
-			conn, conn->payload, conn->payload_len);
+		conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE,
+			c, conn, NULL, 0);
 
-		OPENSSL_free(conn->payload);
+		OPENSSL_free(conn->get_cert.sig_algs);
+		conn->get_cert.sig_algs = NULL;
+
+		OPENSSL_free(conn->get_cert.supported_groups);
+		conn->get_cert.supported_groups = NULL;
+
+		conn->get_cert.ecdsa_cipher = 0;
 
 		if (!conn->op) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
@@ -1059,11 +1072,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		// opcode tag
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
 		|| !CBB_add_u16_length_prefixed(&payload, &child)
-		|| !CBB_add_u8(&child, opcode)
-		// payload tag
-		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_PAYLOAD)
-		|| !CBB_add_u16_length_prefixed(&payload, &child)
-		|| !CBB_add_bytes(&child, in, in_len)) {
+		|| !CBB_add_u8(&child, opcode)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
 		goto error;
 	}
@@ -1146,6 +1155,44 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		}
 	} else {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_connection_local_sockaddr failed");
+	}
+
+	if (conn->get_cert.sig_algs
+		// sig algs tag
+		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SIG_ALGS)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_bytes(&child, conn->get_cert.sig_algs,
+				conn->get_cert.sig_algs_len))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
+	}
+
+	if (conn->get_cert.supported_groups
+		// supported groups tag
+		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_bytes(&child, conn->get_cert.supported_groups,
+				conn->get_cert.supported_groups_len))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
+	}
+
+	if (conn->get_cert.ecdsa_cipher
+		// supported groups tag
+		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_u8(&child, conn->get_cert.ecdsa_cipher))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
+	}
+
+	if (in
+		// payload tag
+		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_PAYLOAD)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_bytes(&child, in, in_len))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		goto error;
 	}
 
 	if (!CBB_flush(&payload)) {
