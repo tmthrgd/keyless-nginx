@@ -413,7 +413,6 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 		conf->shm_zone->init = ngx_http_keyless_cache_init;
 	}
 
-	SSL_CTX_set_tlsext_servername_callback(ssl->ssl.ctx, NULL);
 	SSL_CTX_set_select_certificate_cb(ssl->ssl.ctx, ngx_http_keyless_select_certificate_cb);
 	SSL_CTX_set_cert_cb(ssl->ssl.ctx, ngx_http_keyless_cert_cb, NULL);
 
@@ -517,60 +516,33 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 {
 	const uint8_t *extension_data;
 	size_t extension_len;
-	CBS extension, cipher_suites, server_name_list, host_name, sig_algs;
-	int has_server_name;
+	CBS extension, cipher_suites, sig_algs;
 	uint16_t cipher_suite;
-	uint8_t name_type;
 	const SSL_CIPHER *cipher;
-	char *server_name = NULL;
-	int rc = -1;
 	ngx_connection_t *c;
 	ngx_http_keyless_conn_t *conn = NULL;
-	CBB payload_cbb;
-
-	CBB_zero(&payload_cbb);
-
-	has_server_name = SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_server_name,
-		&extension_data, &extension_len);
-	if (has_server_name) {
-		CBS_init(&extension, extension_data, extension_len);
-
-		if (!CBS_get_u16_length_prefixed(&extension, &server_name_list)
-			|| !CBS_get_u8(&server_name_list, &name_type)
-			/* Although the server_name extension was intended to be extensible to
-			 * new name types and multiple names, OpenSSL 1.0.x had a bug which meant
-			 * different name types will cause an error. Further, RFC 4366 originally
-			 * defined syntax inextensibly. RFC 6066 corrected this mistake, but
-			 * adding new name types is no longer feasible.
-			 *
-			 * Act as if the extensibility does not exist to simplify parsing. */
-			|| !CBS_get_u16_length_prefixed(&server_name_list, &host_name)
-			|| CBS_len(&server_name_list) != 0
-			|| CBS_len(&extension) != 0
-			|| name_type != TLSEXT_NAMETYPE_host_name
-			|| CBS_len(&host_name) == 0
-			|| CBS_len(&host_name) > TLSEXT_MAXLEN_host_name
-			|| CBS_contains_zero_byte(&host_name)
-			|| !CBS_strdup(&host_name, &server_name)) {
-			goto cleanup;
-		}
-
-		ctx->ssl->tlsext_hostname = server_name;
-
-		if (ngx_http_ssl_servername(ctx->ssl, NULL, NULL) == SSL_TLSEXT_ERR_NOACK) {
-			ctx->ssl->s3->tmp.should_ack_sni = 0;
-		}
-	}
 
 	c = ngx_ssl_get_connection(ctx->ssl);
 
 	conn = ngx_pcalloc(c->pool, sizeof(ngx_http_keyless_conn_t));
-	if (!conn) {
-		goto cleanup;
+	if (!conn || !SSL_set_ex_data(c->ssl->connection, g_ssl_exdata_conn_index, conn)) {
+		return 0;
 	}
 
-	if (!SSL_set_ex_data(c->ssl->connection, g_ssl_exdata_conn_index, conn)) {
-		goto cleanup;
+	CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
+
+	while (CBS_len(&cipher_suites) != 0) {
+		if (!CBS_get_u16(&cipher_suites, &cipher_suite)) {
+			return 0;
+		}
+
+		cipher = SSL_get_cipher_by_value(cipher_suite);
+		if (cipher && SSL_CIPHER_is_ECDSA(cipher)
+			&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
+				NULL, cipher)) {
+			conn->get_cert.ecdsa_cipher = 1;
+			break;
+		}
 	}
 
 	if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_signature_algorithms,
@@ -583,51 +555,11 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 			|| CBS_len(&sig_algs) % 2 != 0
 			|| !CBS_stow(&sig_algs, &conn->get_cert.sig_algs,
 				&conn->get_cert.sig_algs_len)) {
-			goto cleanup;
-		}
-	} else {
-		if (!CBB_init(&payload_cbb, 4)
-			|| (has_server_name && !CBB_add_u8(&payload_cbb, TLSEXT_hash_sha256))
-			|| (has_server_name && !CBB_add_u8(&payload_cbb, TLSEXT_signature_rsa))
-			|| !CBB_add_u8(&payload_cbb, TLSEXT_hash_sha1)
-			|| !CBB_add_u8(&payload_cbb, TLSEXT_signature_rsa)
-			|| !CBB_finish(&payload_cbb, &conn->get_cert.sig_algs,
-				&conn->get_cert.sig_algs_len)) {
-			goto cleanup;
+			return 0;
 		}
 	}
 
-	CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
-
-	while (CBS_len(&cipher_suites) != 0) {
-		if (!CBS_get_u16(&cipher_suites, &cipher_suite)) {
-			goto cleanup;
-		}
-
-		cipher = SSL_get_cipher_by_value(cipher_suite);
-		if (cipher && SSL_CIPHER_is_ECDSA(cipher)
-			&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
-				NULL, cipher)) {
-			conn->get_cert.ecdsa_cipher = 1;
-			break;
-		}
-	}
-
-	rc = 1;
-
-cleanup:
-	CBB_cleanup(&payload_cbb);
-
-	if (!rc && conn && conn->get_cert.sig_algs) {
-		OPENSSL_free(conn->get_cert.sig_algs);
-	}
-
-	if (server_name) {
-		ctx->ssl->tlsext_hostname = NULL;
-		OPENSSL_free(server_name);
-	}
-
-	return rc;
+	return 1;
 }
 
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
