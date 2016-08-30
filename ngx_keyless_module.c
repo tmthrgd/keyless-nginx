@@ -26,13 +26,6 @@
 
 #define NGX_HTTP_KEYLESS_PAD_TO 1024
 
-/* taken from boringssl-1e4ae00/ssl/internal.h */
-#ifndef SSL_CURVE_SECP256R1
-#	define SSL_CURVE_SECP256R1 23
-#	define SSL_CURVE_SECP384R1 24
-#	define SSL_CURVE_SECP521R1 25
-#endif /* SSL_CURVE_SECP256R1 */
-
 enum {
 	// [Deprecated]: SHA256 hash of RSA public key
 	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x01,
@@ -54,10 +47,8 @@ enum {
 	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x20,
 
 	// The range [0xc0, 0xff) is reserved for private tags.
-	// Supported groups
-	NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS = 0xc0,
 	// One iff ECDSA ciphers are supported
-	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER     = 0xc1,
+	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc0,
 };
 
 typedef enum {
@@ -183,9 +174,6 @@ typedef struct {
 	struct {
 		uint8_t *sig_algs;
 		size_t sig_algs_len;
-
-		uint8_t *supported_groups;
-		size_t supported_groups_len;
 
 		uint8_t ecdsa_cipher;
 	} get_cert;
@@ -529,7 +517,7 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 {
 	const uint8_t *extension_data;
 	size_t extension_len;
-	CBS extension, cipher_suites, server_name_list, host_name, sig_algs, supported_groups;
+	CBS extension, cipher_suites, server_name_list, host_name, sig_algs;
 	int has_server_name;
 	uint16_t cipher_suite;
 	uint8_t name_type;
@@ -609,30 +597,6 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		}
 	}
 
-	if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_supported_groups,
-			&extension_data, &extension_len)) {
-		CBS_init(&extension, extension_data, extension_len);
-
-		if (!CBS_get_u16_length_prefixed(&extension, &supported_groups)
-			|| CBS_len(&supported_groups) == 0
-			|| CBS_len(&extension) != 0
-			|| CBS_len(&supported_groups) % 2 != 0
-			|| !CBS_stow(&supported_groups, &conn->get_cert.supported_groups,
-				&conn->get_cert.supported_groups_len)) {
-			goto cleanup;
-		}
-	} else {
-		/* Clients are not required to send a supported_curves extension. In this
-		 * case, the server is free to pick any curve it likes. See RFC 4492,
-		 * section 4, paragraph 3. */
-		if (!CBB_init(&payload_cbb, 2)
-			|| !CBB_add_u16(&payload_cbb, SSL_CURVE_SECP256R1)
-			|| !CBB_finish(&payload_cbb, &conn->get_cert.supported_groups,
-				&conn->get_cert.supported_groups_len)) {
-			goto cleanup;
-		}
-	}
-
 	CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
 
 	while (CBS_len(&cipher_suites) != 0) {
@@ -654,14 +618,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 cleanup:
 	CBB_cleanup(&payload_cbb);
 
-	if (!rc && conn) {
-		if (conn->get_cert.sig_algs) {
-			OPENSSL_free(conn->get_cert.sig_algs);
-		}
-
-		if (conn->get_cert.supported_groups) {
-			OPENSSL_free(conn->get_cert.supported_groups);
-		}
+	if (!rc && conn && conn->get_cert.sig_algs) {
+		OPENSSL_free(conn->get_cert.sig_algs);
 	}
 
 	if (server_name) {
@@ -709,9 +667,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 		OPENSSL_free(conn->get_cert.sig_algs);
 		conn->get_cert.sig_algs = NULL;
-
-		OPENSSL_free(conn->get_cert.supported_groups);
-		conn->get_cert.supported_groups = NULL;
 
 		conn->get_cert.ecdsa_cipher = 0;
 
@@ -1168,16 +1123,6 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, conn->get_cert.sig_algs,
 				conn->get_cert.sig_algs_len))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
-		goto error;
-	}
-
-	if (conn->get_cert.supported_groups
-		// supported groups tag
-		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SUPPORTED_GROUPS)
-			|| !CBB_add_u16_length_prefixed(&payload, &child)
-			|| !CBB_add_bytes(&child, conn->get_cert.supported_groups,
-				conn->get_cert.supported_groups_len))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
 		goto error;
 	}
