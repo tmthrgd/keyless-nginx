@@ -62,68 +62,72 @@ enum {
 
 typedef enum {
 	// Decrypt data using RSA with or without padding
-	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT     = 0x01,
-	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW = 0x08,
+	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT     = 0x0001,
+	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW = 0x0008,
 
 	// Sign data using RSA
-	NGX_HTTP_KEYLESS_OP_RSA_SIGN_MD5SHA1 = 0x02,
-	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA1    = 0x03,
-	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA224  = 0x04,
-	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA256  = 0x05,
-	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA384  = 0x06,
-	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA512  = 0x07,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_MD5SHA1 = 0x0002,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA1    = 0x0003,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA224  = 0x0004,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA256  = 0x0005,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA384  = 0x0006,
+	NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA512  = 0x0007,
 
 	// Sign data using RSA-PSS
-#define NGX_HTTP_KEYLESS_OP_RSA_PSS_MASK          0x30
-	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA256 = 0x35,
-	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA384 = 0x36,
-	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA512 = 0x37,
+#define NGX_HTTP_KEYLESS_OP_RSA_PSS_MASK          0x0030
+	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA256 = 0x0035,
+	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA384 = 0x0036,
+	NGX_HTTP_KEYLESS_OP_RSA_PSS_SIGN_SHA512 = 0x0037,
 
 	// Sign data using ECDSA
-#define NGX_HTTP_KEYLESS_OP_ECDSA_MASK           0x10
-	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_MD5SHA1 = 0x12,
-	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA1    = 0x13,
-	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA224  = 0x14,
-	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA256  = 0x15,
-	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA384  = 0x16,
-	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA512  = 0x17,
+#define NGX_HTTP_KEYLESS_OP_ECDSA_MASK           0x0010
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_MD5SHA1 = 0x0012,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA1    = 0x0013,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA224  = 0x0014,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA256  = 0x0015,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA384  = 0x0016,
+	NGX_HTTP_KEYLESS_OP_ECDSA_SIGN_SHA512  = 0x0017,
 
 	// Request a certificate and chain
-	NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE = 0x20,
+	NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE = 0x0020,
 
 	// [Deprecated]: A test message
-	NGX_HTTP_KEYLESS_OP_PING = 0xF1,
-	NGX_HTTP_KEYLESS_OP_PONG = 0xF2,
+	NGX_HTTP_KEYLESS_OP_PING = 0x00F1,
+	NGX_HTTP_KEYLESS_OP_PONG = 0x00F2,
 
 	// [Deprecated]: A verification message
-	NGX_HTTP_KEYLESS_OP_ACTIVATE = 0xF3,
+	NGX_HTTP_KEYLESS_OP_ACTIVATE = 0x00F3,
 
 	// Response
-	NGX_HTTP_KEYLESS_OP_RESPONSE = 0xF0,
-	NGX_HTTP_KEYLESS_OP_ERROR    = 0xFF,
+	NGX_HTTP_KEYLESS_OP_RESPONSE = 0x00F0,
+	NGX_HTTP_KEYLESS_OP_ERROR    = 0x00FF,
+
+	// The range [0xc000, 0xffff) is reserved for private opcodes.
 } ngx_http_keyless_operation_t;
 
 typedef enum {
 	// No error
-	NGX_HTTP_KEYLESS_ERROR_NONE              = 0x00,
+	NGX_HTTP_KEYLESS_ERROR_NONE              = 0x0000,
 	// Cryptographic error
-	NGX_HTTP_KEYLESS_ERROR_CRYPTO_FAILED     = 0x01,
+	NGX_HTTP_KEYLESS_ERROR_CRYPTO_FAILED     = 0x0001,
 	// Private key not found
-	NGX_HTTP_KEYLESS_ERROR_KEY_NOT_FOUND     = 0x02,
+	NGX_HTTP_KEYLESS_ERROR_KEY_NOT_FOUND     = 0x0002,
 	// [Deprecated]: Disk read failure
-	NGX_HTTP_KEYLESS_ERROR_DISK_READ         = 0x03,
+	NGX_HTTP_KEYLESS_ERROR_DISK_READ         = 0x0003,
 	// Client-Server version mismatch
-	NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH  = 0x04,
+	NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH  = 0x0004,
 	// Invalid/unsupported opcode
-	NGX_HTTP_KEYLESS_ERROR_BAD_OPCODE        = 0x05,
+	NGX_HTTP_KEYLESS_ERROR_BAD_OPCODE        = 0x0005,
 	// Opcode sent at wrong time/direction
-	NGX_HTTP_KEYLESS_ERROR_UNEXPECTED_OPCODE = 0x06,
+	NGX_HTTP_KEYLESS_ERROR_UNEXPECTED_OPCODE = 0x0006,
 	// Malformed message
-	NGX_HTTP_KEYLESS_ERROR_FORMAT            = 0x07,
+	NGX_HTTP_KEYLESS_ERROR_FORMAT            = 0x0007,
 	// Other internal error
-	NGX_HTTP_KEYLESS_ERROR_INTERNAL          = 0x08,
+	NGX_HTTP_KEYLESS_ERROR_INTERNAL          = 0x0008,
 	// Certificate not found
-	NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND    = 0x09,
+	NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND    = 0x0009,
+
+	// The range [0xc000, 0xffff) is reserved for private errors.
 } ngx_http_keyless_error_t;
 
 typedef struct {
@@ -1072,7 +1076,8 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		// opcode tag
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
 		|| !CBB_add_u16_length_prefixed(&payload, &child)
-		|| !CBB_add_u8(&child, opcode)) {
+		|| (opcode > 0xff && !CBB_add_u16(&child, opcode))
+		|| (opcode < 0x100 && !CBB_add_u8(&child, opcode))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
 		goto error;
 	}
@@ -1301,10 +1306,25 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 					return ssl_private_key_failure;
 				}
 
-				if (!CBS_get_u8(&child, (uint8_t *)&opcode)
-					|| CBS_len(&child) != 0) {
-					ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
-					return ssl_private_key_failure;
+				switch (CBS_len(&child)) {
+					case 1:
+						if (!CBS_get_u8(&child, (uint8_t *)&opcode)) {
+							ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+							return ssl_private_key_failure;
+						}
+
+						break;
+					case 2:
+						if (!CBS_get_u16(&child, (uint16_t *)&opcode)) {
+							ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+							return ssl_private_key_failure;
+						}
+
+						break;
+					default:
+						ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+							ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+						return ssl_private_key_failure;
 				}
 
 				saw_opcode = 1;
@@ -1361,10 +1381,25 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 			*out = payload;
 			return ssl_private_key_success;
 		case NGX_HTTP_KEYLESS_OP_ERROR:
-			if (!CBS_get_u8(&payload, (uint8_t *)&op->error)
-				|| CBS_len(&payload) != 0) {
-				ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed or format error");
-				return ssl_private_key_failure;
+			switch (CBS_len(&payload)) {
+				case 1:
+					if (!CBS_get_u8(&payload, (uint8_t *)&op->error)) {
+						ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+						return ssl_private_key_failure;
+					}
+
+					break;
+				case 2:
+					if (!CBS_get_u16(&payload, (uint16_t *)&op->error)) {
+						ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+						return ssl_private_key_failure;
+					}
+
+					break;
+				default:
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
 			}
 
 			ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless error: %s",
