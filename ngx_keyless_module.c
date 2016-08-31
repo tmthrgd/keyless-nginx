@@ -459,7 +459,7 @@ static ngx_int_t ngx_http_keyless_cache_init(ngx_shm_zone_t *shm_zone, void *dat
 	}
 
 	cache = ngx_slab_alloc(shpool, sizeof(ngx_http_keyless_cache_t));
-	if (cache == NULL) {
+	if (!cache) {
 		return NGX_ERROR;
 	}
 
@@ -1063,7 +1063,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	}
 
 	if (conn->get_cert.ecdsa_cipher
-		// supported groups tag
+		// ecdsa cipher tag
 		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_u8(&child, conn->get_cert.ecdsa_cipher))) {
@@ -1071,8 +1071,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	if (in
-		// payload tag
+	if (in // payload tag
 		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_PAYLOAD)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, in, in_len))) {
