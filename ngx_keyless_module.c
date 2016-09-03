@@ -1154,7 +1154,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		CBS *out)
 {
 	ngx_http_keyless_operation_t opcode = 0;
-	uint8_t tag;
+	uint8_t tag, v, vv;
 	CBS msg, child, payload;
 	int saw_opcode = 0, saw_payload = 0, saw_padding = 0;
 
@@ -1225,7 +1225,28 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 					return ssl_private_key_failure;
 				}
 
-				// ignore; should this be checked to ensure it is zero?
+				v = 0;
+
+				while (CBS_len(&child) != 0) {
+					if (!CBS_get_u8(&child, &vv)) {
+						ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+						return ssl_private_key_failure;
+					}
+
+					v |= vv;
+				}
+
+				v = ~v;
+				v &= v >> 4;
+				v &= v >> 2;
+				v &= v >> 1;
+
+				if (v == 0) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
+				}
+
 				saw_padding = 1;
 				break;
 			case NGX_HTTP_KEYLESS_TAG_SKI:
