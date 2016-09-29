@@ -1523,7 +1523,7 @@ static int ngx_http_keyless_key_type(ngx_ssl_conn_t *ssl_conn)
 
 	conn = SSL_get_ex_data(c->ssl->connection, g_ssl_exdata_conn_index);
 	if (!conn) {
-		return 1;
+		return NID_undef;
 	}
 
 	return conn->key.type;
@@ -1538,7 +1538,7 @@ static size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn)
 
 	conn = SSL_get_ex_data(c->ssl->connection, g_ssl_exdata_conn_index);
 	if (!conn) {
-		return 1;
+		return 0;
 	}
 
 	return conn->key.sig_len;
