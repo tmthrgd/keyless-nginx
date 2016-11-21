@@ -617,7 +617,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		return -1;
 	}
 
-	conf = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_conf_index);
+	conf = SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), g_ssl_ctx_exdata_conf_index);
 	if (!conf) {
 		goto error;
 	}
@@ -927,7 +927,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	ssl = c->ssl->connection;
 
-	conf = SSL_CTX_get_ex_data(ssl->ctx, g_ssl_ctx_exdata_conf_index);
+	conf = SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), g_ssl_ctx_exdata_conf_index);
 	if (!conf) {
 		goto error;
 	}
