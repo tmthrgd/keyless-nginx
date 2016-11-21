@@ -517,6 +517,7 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	const uint8_t *extension_data;
 	size_t extension_len;
 	CBS extension, cipher_suites, sig_algs;
+	STACK_OF(SSL_CIPHER) *cipher_list;
 	uint16_t cipher_suite;
 	const SSL_CIPHER *cipher;
 	ngx_connection_t *c;
@@ -530,6 +531,8 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		return 0;
 	}
 
+	cipher_list = SSL_get_ciphers(ctx->ssl);
+
 	CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
 
 	while (CBS_len(&cipher_suites) != 0) {
@@ -539,8 +542,7 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 
 		cipher = SSL_get_cipher_by_value(cipher_suite);
 		if (cipher && SSL_CIPHER_is_ECDSA(cipher)
-			&& sk_SSL_CIPHER_find(ctx->ssl->ctx->cipher_list_by_id,
-				NULL, cipher)) {
+			&& sk_SSL_CIPHER_find(cipher_list, NULL, cipher)) {
 			conn->get_cert.ecdsa_cipher = 1;
 			break;
 		}
