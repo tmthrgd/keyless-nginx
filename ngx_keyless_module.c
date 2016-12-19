@@ -230,7 +230,7 @@ static ngx_int_t ngx_http_keyless_cache_init(ngx_shm_zone_t *shm_zone, void *dat
 static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node,
 		ngx_rbtree_node_t *sentinel);
 
-static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callback_ctx *ctx);
+static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
 
 static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
@@ -650,7 +650,7 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 	ngx_rbt_red(node);
 }
 
-static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callback_ctx *ctx)
+static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello)
 {
 	const uint8_t *extension_data;
 	size_t extension_len;
@@ -662,16 +662,16 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 	ngx_http_keyless_conn_t *conn;
 	ngx_pool_cleanup_t *cln;
 
-	c = ngx_ssl_get_connection(ctx->ssl);
+	c = ngx_ssl_get_connection(client_hello->ssl);
 
 	conn = ngx_pcalloc(c->pool, sizeof(ngx_http_keyless_conn_t));
 	if (!conn || !SSL_set_ex_data(c->ssl->connection, g_ssl_exdata_conn_index, conn)) {
 		return 0;
 	}
 
-	cipher_list = SSL_get_ciphers(ctx->ssl);
+	cipher_list = SSL_get_ciphers(client_hello->ssl);
 
-	CBS_init(&cipher_suites, ctx->cipher_suites, ctx->cipher_suites_len);
+	CBS_init(&cipher_suites, client_hello->cipher_suites, client_hello->cipher_suites_len);
 
 	while (CBS_len(&cipher_suites) != 0) {
 		if (!CBS_get_u16(&cipher_suites, &cipher_suite)) {
@@ -686,7 +686,7 @@ static int ngx_http_keyless_select_certificate_cb(const struct ssl_early_callbac
 		}
 	}
 
-	if (SSL_early_callback_ctx_extension_get(ctx, TLSEXT_TYPE_signature_algorithms,
+	if (SSL_early_callback_ctx_extension_get(client_hello, TLSEXT_TYPE_signature_algorithms,
 			&extension_data, &extension_len)) {
 		CBS_init(&extension, extension_data, extension_len);
 
