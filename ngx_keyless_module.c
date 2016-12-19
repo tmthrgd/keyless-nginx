@@ -1453,6 +1453,8 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 			case NGX_HTTP_KEYLESS_TAG_SNI:
 			case NGX_HTTP_KEYLESS_TAG_CLIENT_IP:
 			case NGX_HTTP_KEYLESS_TAG_SERVER_IP:
+			case NGX_HTTP_KEYLESS_TAG_SIG_ALGS:
+			case NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER:
 				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless: unexpected tag");
 				return ssl_private_key_failure;
 		}
