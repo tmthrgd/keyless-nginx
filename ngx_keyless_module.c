@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 
 #include <openssl/crypto.h>
+#include <openssl/curve25519.h>
 #include <openssl/digest.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
@@ -19,10 +20,11 @@
 
 #define NGX_HTTP_KEYLESS_OP_BUFFER_SIZE 2*1024
 
-#define NGX_HTTP_KEYLESS_VERSION_MAJOR 1
+#define NGX_HTTP_KEYLESS_VERSION_MAJOR 2
 #define NGX_HTTP_KEYLESS_VERSION_MINOR 0
 
-#define NGX_HTTP_KEYLESS_HEADER_LENGTH 8
+#define NGX_HTTP_KEYLESS_HEADER_LENGTH (8 + 8 + ED25519_SIGNATURE_LEN + ED25519_PUBLIC_KEY_LEN \
+		+ ED25519_SIGNATURE_LEN)
 
 #define NGX_HTTP_KEYLESS_PAD_TO 1024
 
@@ -119,7 +121,16 @@ typedef enum {
 	NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND    = 0x0009,
 
 	// The range [0xc000, 0xffff) is reserved for private errors.
+	// The client was not authorised to perform that request.
+	NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED = 0xc000,
 } ngx_http_keyless_error_t;
+
+typedef struct {
+	uint8_t public_key[ED25519_PUBLIC_KEY_LEN];
+	uint8_t id[8];
+
+	ngx_queue_t queue;
+} ngx_http_keyless_authority_t;
 
 typedef struct {
 	ngx_str_t address;
@@ -127,6 +138,16 @@ typedef struct {
 	size_t shm_size;
 	ngx_msec_t timeout;
 	ngx_flag_t fallback;
+	ngx_str_t keyfile;
+	ngx_str_t authorities_str;
+
+	uint8_t private_key[ED25519_PRIVATE_KEY_LEN];
+	uint8_t public_key[ED25519_PUBLIC_KEY_LEN];
+	struct {
+		uint8_t signature[ED25519_SIGNATURE_LEN];
+		uint8_t id[8];
+	} authority;
+	ngx_queue_t authorities;
 
 	ngx_peer_connection_t pc;
 
@@ -292,6 +313,20 @@ static ngx_command_t ngx_http_keyless_module_commands[] = {
 	  offsetof(ngx_http_keyless_srv_conf_t, fallback),
 	  NULL },
 
+	{ ngx_string("keyless_keyfile"),
+	  NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+	  ngx_conf_set_str_slot,
+	  NGX_HTTP_SRV_CONF_OFFSET,
+	  offsetof(ngx_http_keyless_srv_conf_t, keyfile),
+	  NULL },
+
+	{ ngx_string("keyless_authorities"),
+	  NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+	  ngx_conf_set_str_slot,
+	  NGX_HTTP_SRV_CONF_OFFSET,
+	  offsetof(ngx_http_keyless_srv_conf_t, authorities_str),
+	  NULL },
+
 	ngx_null_command
 };
 
@@ -338,6 +373,8 @@ static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf)
 	 *
 	 *     kcscf->address = { 0, NULL };
 	 *     kcscf->shm_name = { 0, NULL };
+	 *     kcscf->keyfile = { 0, NULL };
+	 *     kcscf->authorities_str = { 0, NULL };
 	 */
 
 	kcscf->shm_size = NGX_CONF_UNSET_SIZE;
@@ -354,15 +391,33 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 
 	ngx_http_ssl_srv_conf_t *ssl;
 	ngx_url_t u;
+	ngx_fd_t fd;
+	ssize_t n;
+	u_char buf[ED25519_PRIVATE_KEY_LEN + 8 + ED25519_SIGNATURE_LEN], *p, *colon,
+		hash[SHA256_DIGEST_LENGTH];
+	ngx_str_t key_str, key;
+	ngx_http_keyless_authority_t *authority;
 
 	ngx_conf_merge_str_value(conf->address, prev->address, "");
 	ngx_conf_merge_str_value(conf->shm_name, prev->shm_name, "");
 	ngx_conf_merge_size_value(conf->shm_size, prev->shm_size, 8 * ngx_pagesize);
 	ngx_conf_merge_msec_value(conf->timeout, prev->timeout, 250);
 	ngx_conf_merge_value(conf->fallback, prev->fallback, 1);
+	ngx_conf_merge_str_value(conf->keyfile, prev->keyfile, "/etc/keyless-nginx.key");
+	ngx_conf_merge_str_value(conf->authorities_str, prev->authorities_str, "");
 
 	if (!conf->address.len || ngx_strcmp(conf->address.data, "off") == 0) {
 		return NGX_CONF_OK;
+	}
+
+	if (!conf->authorities_str.len) {
+		ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
+			"the keyless_authorities directive is required");
+		return NGX_CONF_ERROR;
+	}
+
+	if (ngx_conf_full_name(cf->cycle, &conf->keyfile, 1) != NGX_OK) {
+		return NGX_CONF_ERROR;
 	}
 
 	ssl = ngx_http_conf_get_module_srv_conf(cf, ngx_http_ssl_module);
@@ -434,8 +489,91 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	}
 
 	if (!SSL_CTX_set_ex_data(ssl->ssl.ctx, g_ssl_ctx_exdata_conf_index, conf)) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "SSL_XTX_set_ex_data failed");
+		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "SSL_CTX_set_ex_data failed");
 		return NGX_CONF_ERROR;
+	}
+
+	fd = ngx_open_file(conf->keyfile.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+	if (fd == NGX_INVALID_FILE) {
+		ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno,
+			ngx_open_file_n " \"%s\" failed", conf->keyfile.data);
+		return NGX_CONF_ERROR;
+	}
+
+	n = ngx_read_fd(fd, buf, sizeof(buf));
+	if (n == -1 || n != sizeof(buf)) {
+		ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno,
+			ngx_read_fd_n " \"%s\" failed", conf->keyfile.data);
+		return NGX_CONF_ERROR;
+	}
+
+	p = buf;
+
+	ngx_memcpy(conf->private_key, p, ED25519_PRIVATE_KEY_LEN); p += ED25519_PRIVATE_KEY_LEN;
+	ngx_memcpy(conf->public_key, conf->private_key + 32, ED25519_PUBLIC_KEY_LEN);
+
+	ngx_memcpy(conf->authority.id, p, 8); p += 8;
+	ngx_memcpy(conf->authority.signature, p, ED25519_SIGNATURE_LEN);
+
+	ngx_queue_init(&conf->authorities);
+
+	ngx_str_null(&key);
+
+	p = conf->authorities_str.data;
+
+	while (1) {
+		colon = (u_char *)ngx_strchr(p, ':');
+
+		if (colon) {
+			key_str.len = colon - p;
+			*colon = '\0';
+		} else {
+			key_str.len = conf->authorities_str.data + conf->authorities_str.len - p;
+		}
+
+		key_str.data = p;
+
+		if (key.data) {
+			ngx_pfree(cf->pool, key.data);
+		}
+
+		ngx_str_null(&key);
+
+		key.data = ngx_pcalloc(cf->pool, ngx_base64_decoded_length(key_str.len));
+		if (!key.data) {
+			ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_pcalloc failed");
+			return NGX_CONF_ERROR;
+		}
+
+		if (ngx_decode_base64(&key, &key_str) != NGX_OK) {
+			ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_decode_base64 failed");
+			return NGX_CONF_ERROR;
+		}
+
+		if (key.len != ED25519_PUBLIC_KEY_LEN) {
+			ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
+				"invalid keyless_authorities directive");
+			return NGX_CONF_ERROR;
+		}
+
+		SHA256(key.data, ED25519_PUBLIC_KEY_LEN, hash);
+
+		authority = ngx_pcalloc(cf->pool, sizeof(ngx_http_keyless_authority_t));
+		if (!authority) {
+			ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_pcalloc failed");
+			return NGX_CONF_ERROR;
+		}
+
+		ngx_memcpy(authority->public_key, key.data, ED25519_PUBLIC_KEY_LEN);
+		ngx_memcpy(authority->id, hash, 8);
+
+		ngx_queue_insert_tail(&conf->authorities, &authority->queue);
+
+		if (!colon) {
+			break;
+		}
+
+		p = colon + 1;
 	}
 
 	return NGX_CONF_OK;
@@ -918,7 +1056,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	const struct sockaddr_in6 *sin6;
 #endif
 	CBB payload, child;
-	uint8_t *p;
+	uint8_t *p, *sig;
 	const uint8_t *sni, *ip;
 	size_t len, ip_len;
 	ngx_int_t rc;
@@ -965,6 +1103,10 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MINOR)
 		|| !CBB_add_u16(&payload, 0) // length placeholder
 		|| !CBB_add_u32(&payload, op->id)
+		|| !CBB_add_bytes(&payload, conf->authority.id, 8)
+		|| !CBB_add_bytes(&payload, conf->authority.signature, ED25519_SIGNATURE_LEN)
+		|| !CBB_add_bytes(&payload, conf->public_key, ED25519_PUBLIC_KEY_LEN)
+		|| !CBB_add_space(&payload, &sig, ED25519_SIGNATURE_LEN)
 		// opcode tag
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
 		|| !CBB_add_u16_length_prefixed(&payload, &child)
@@ -1099,6 +1241,19 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		ngx_memzero(p, NGX_HTTP_KEYLESS_PAD_TO - len);
 	}
 
+	if (!CBB_flush(&payload)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_flush failed");
+		goto error;
+	}
+
+	if (!ED25519_sign(sig,
+			CBB_data(&payload) + NGX_HTTP_KEYLESS_HEADER_LENGTH,
+			CBB_len(&payload) - NGX_HTTP_KEYLESS_HEADER_LENGTH,
+			conf->private_key)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ED25519_sign failed");
+		goto error;
+	}
+
 	if (!CBB_finish(&payload, &p, &len)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_finish failed");
 		goto error;
@@ -1158,7 +1313,11 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	ngx_http_keyless_operation_t opcode = 0;
 	uint8_t tag, v, vv;
 	CBS msg, child, payload;
-	int saw_opcode = 0, saw_payload = 0, saw_padding = 0;
+	int saw_opcode = 0, saw_payload = 0, saw_padding = 0, is_authorised = 0;
+	uint8_t remote_authority_id[8], remote_authority_signature[ED25519_SIGNATURE_LEN],
+		remote_public[ED25519_PUBLIC_KEY_LEN], remote_signature[ED25519_SIGNATURE_LEN];
+	ngx_queue_t *q;
+	ngx_http_keyless_authority_t *authority;
 
 	if (op->recv.last - op->recv.pos < NGX_HTTP_KEYLESS_HEADER_LENGTH) {
 		if (op->timer.timedout) {
@@ -1169,8 +1328,38 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		return ssl_private_key_retry;
 	}
 
-	CBS_init(&msg, op->recv.pos + NGX_HTTP_KEYLESS_HEADER_LENGTH,
-		op->recv.last - op->recv.pos - NGX_HTTP_KEYLESS_HEADER_LENGTH);
+	CBS_init(&msg, op->recv.pos, op->recv.last - op->recv.pos);
+
+	if (!CBS_skip(&msg, 8)
+		|| !CBS_copy_bytes(&msg, remote_authority_id, 8)
+		|| !CBS_copy_bytes(&msg, remote_authority_signature, ED25519_SIGNATURE_LEN)
+		|| !CBS_copy_bytes(&msg, remote_public, ED25519_PUBLIC_KEY_LEN)
+		|| !CBS_copy_bytes(&msg, remote_signature, ED25519_SIGNATURE_LEN)) {
+		ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+		return ssl_private_key_failure;
+	}
+
+	if (!ED25519_verify(CBS_data(&msg), CBS_len(&msg), remote_signature, remote_public)) {
+		ngx_log_error(NGX_LOG_ERR, op->log, 0, "ED25519_verify failed");
+		return ssl_private_key_failure;
+	}
+
+	for (q = ngx_queue_head(&op->conf->authorities);
+		q != ngx_queue_sentinel(&op->conf->authorities);
+		q = ngx_queue_next(q)) {
+		authority = ngx_queue_data(q, ngx_http_keyless_authority_t, queue);
+
+		if (ngx_memcmp(authority->id, remote_authority_id, 8) == 0) {
+			is_authorised = ED25519_verify(remote_public, ED25519_PUBLIC_KEY_LEN,
+				remote_authority_signature, authority->public_key);
+			break;
+		}
+	}
+
+	if (!is_authorised) {
+		ngx_log_error(NGX_LOG_ERR, op->log, 0, "server not authorised");
+		return ssl_private_key_failure;
+	}
 
 	while (CBS_len(&msg) != 0) {
 		if (!CBS_get_u8(&msg, &tag)
@@ -1427,6 +1616,10 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		|| !CBS_skip(&payload, 1)
 		|| !CBS_get_u16(&payload, &length)
 		|| !CBS_get_u32(&payload, &id)
+		|| !CBS_skip(&payload, 8)
+		|| !CBS_skip(&payload, ED25519_SIGNATURE_LEN)
+		|| !CBS_skip(&payload, ED25519_PUBLIC_KEY_LEN)
+		|| !CBS_skip(&payload, ED25519_SIGNATURE_LEN)
 		|| length != CBS_len(&payload)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_* failed or format error");
 		goto cleanup;
@@ -1707,6 +1900,8 @@ static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error)
 			return "internal error";
 		case NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND:
 			return "certificate not found";
+		case NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED:
+			return "client not authorised";
 		default:
 			return "unkown error";
 	}
