@@ -53,7 +53,7 @@ enum {
 
 	// The range [0xc000, 0xffff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
-	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc000,
+	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc001,
 };
 
 typedef enum {
