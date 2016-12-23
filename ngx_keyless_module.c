@@ -103,6 +103,7 @@ typedef enum {
 	NGX_HTTP_KEYLESS_OP_ERROR    = 0x00FF,
 
 	// The range [0x0100, 0xc000) is for opcodes from our protocol version.
+	NGX_HTTP_KEYLESS_OP_ED25519_SIGN = 0x0101, // Sign data using Ed25519
 
 	// The range [0xc000, 0xffff) is reserved for private opcodes.
 } ngx_http_keyless_operation_t;
@@ -1522,6 +1523,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		case NGX_HTTP_KEYLESS_OP_PING:
 		case NGX_HTTP_KEYLESS_OP_PONG:
 		case NGX_HTTP_KEYLESS_OP_ACTIVATE:
+		case NGX_HTTP_KEYLESS_OP_ED25519_SIGN:
 			ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
 				ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_UNEXPECTED_OPCODE));
 			return ssl_private_key_failure;
