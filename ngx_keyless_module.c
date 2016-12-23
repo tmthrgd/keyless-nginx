@@ -1057,7 +1057,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	const struct sockaddr_in6 *sin6;
 #endif
 	CBB payload, child;
-	uint8_t *p, *sig;
+	uint8_t *p;
 	const uint8_t *sni, *ip;
 	size_t len, ip_len;
 	ngx_int_t rc;
@@ -1107,7 +1107,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		|| !CBB_add_bytes(&payload, conf->authority.id, 8)
 		|| !CBB_add_bytes(&payload, conf->authority.signature, ED25519_SIGNATURE_LEN)
 		|| !CBB_add_bytes(&payload, conf->public_key, ED25519_PUBLIC_KEY_LEN)
-		|| !CBB_add_space(&payload, &sig, ED25519_SIGNATURE_LEN)
+		|| !CBB_add_space(&payload, NULL, ED25519_SIGNATURE_LEN) // signature placeholder
 		// opcode tag
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
 		|| !CBB_add_u16_length_prefixed(&payload, &child)
@@ -1247,20 +1247,20 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	if (!ED25519_sign(sig,
-			CBB_data(&payload) + NGX_HTTP_KEYLESS_HEADER_LENGTH,
-			CBB_len(&payload) - NGX_HTTP_KEYLESS_HEADER_LENGTH,
-			conf->private_key)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ED25519_sign failed");
-		goto error;
-	}
-
 	if (!CBB_finish(&payload, &p, &len)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_finish failed");
 		goto error;
 	}
 
 	*(uint16_t *)(p + 2) = htons(len - NGX_HTTP_KEYLESS_HEADER_LENGTH); // set length
+
+	// set signature
+	if (!ED25519_sign(p + NGX_HTTP_KEYLESS_HEADER_LENGTH - ED25519_SIGNATURE_LEN,
+			p + NGX_HTTP_KEYLESS_HEADER_LENGTH, len - NGX_HTTP_KEYLESS_HEADER_LENGTH,
+			conf->private_key)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ED25519_sign failed");
+		goto error;
+	}
 
 	op->send.start = p;
 	op->send.pos = p;
