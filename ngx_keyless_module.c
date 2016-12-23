@@ -30,27 +30,27 @@
 
 enum {
 	// [Deprecated]: SHA256 hash of RSA public key
-	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x01,
+	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x0001,
 	// Server Name Identifier
-	NGX_HTTP_KEYLESS_TAG_SNI       = 0x02,
+	NGX_HTTP_KEYLESS_TAG_SNI       = 0x0002,
 	// Client IP Address
-	NGX_HTTP_KEYLESS_TAG_CLIENT_IP = 0x03,
+	NGX_HTTP_KEYLESS_TAG_CLIENT_IP = 0x0003,
 	// SHA1 hash of Subject Key Info
-	NGX_HTTP_KEYLESS_TAG_SKI       = 0x04,
+	NGX_HTTP_KEYLESS_TAG_SKI       = 0x0004,
 	// Server IP Address
-	NGX_HTTP_KEYLESS_TAG_SERVER_IP = 0x05,
+	NGX_HTTP_KEYLESS_TAG_SERVER_IP = 0x0005,
 	// Signature Algorithms
-	NGX_HTTP_KEYLESS_TAG_SIG_ALGS  = 0x06,
+	NGX_HTTP_KEYLESS_TAG_SIG_ALGS  = 0x0006,
 	// Request operation code (see ngx_http_keyless_operation_t)
-	NGX_HTTP_KEYLESS_TAG_OPCODE    = 0x11,
+	NGX_HTTP_KEYLESS_TAG_OPCODE    = 0x0011,
 	// Request payload
-	NGX_HTTP_KEYLESS_TAG_PAYLOAD   = 0x12,
+	NGX_HTTP_KEYLESS_TAG_PAYLOAD   = 0x0012,
 	// Padding
-	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x20,
+	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x0020,
 
 	// The range [0xc0, 0xff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
-	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc0,
+	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc000,
 };
 
 typedef enum {
@@ -1109,17 +1109,16 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		|| !CBB_add_bytes(&payload, conf->public_key, ED25519_PUBLIC_KEY_LEN)
 		|| !CBB_add_space(&payload, NULL, ED25519_SIGNATURE_LEN) // signature placeholder
 		// opcode tag
-		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
+		|| !CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
 		|| !CBB_add_u16_length_prefixed(&payload, &child)
-		|| (opcode > 0xff && !CBB_add_u16(&child, opcode))
-		|| (opcode < 0x100 && !CBB_add_u8(&child, opcode))) {
+		|| !CBB_add_u16(&child, opcode)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
 		goto error;
 	}
 
 	if (conn->key.type
 		// ski tag
-		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SKI)
+		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SKI)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, conn->ski, SHA_DIGEST_LENGTH))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
@@ -1128,7 +1127,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	sni = (const uint8_t *)SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 	if (sni // sni tag
-		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SNI)
+		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SNI)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, sni, ngx_strlen(sni)))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
@@ -1157,7 +1156,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	if (ip_len
 		// client ip tag
-		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_CLIENT_IP)
+		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_CLIENT_IP)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, ip, ip_len))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
@@ -1187,7 +1186,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 		if (ip_len
 			// server ip tag
-			&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SERVER_IP)
+			&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SERVER_IP)
 				|| !CBB_add_u16_length_prefixed(&payload, &child)
 				|| !CBB_add_bytes(&child, ip, ip_len))) {
 			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
@@ -1199,7 +1198,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	if (conn->get_cert.sig_algs
 		// sig algs tag
-		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_SIG_ALGS)
+		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SIG_ALGS)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, conn->get_cert.sig_algs,
 				conn->get_cert.sig_algs_len))) {
@@ -1209,7 +1208,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	if (conn->get_cert.ecdsa_cipher
 		// ecdsa cipher tag
-		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
+		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_u8(&child, conn->get_cert.ecdsa_cipher))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
@@ -1217,7 +1216,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	}
 
 	if (in // payload tag
-		&& (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_PAYLOAD)
+		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_PAYLOAD)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, in, in_len))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
@@ -1232,7 +1231,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	len = CBB_len(&payload);
 	if (len < NGX_HTTP_KEYLESS_PAD_TO) {
 		// padding tag
-		if (!CBB_add_u8(&payload, NGX_HTTP_KEYLESS_TAG_PADDING)
+		if (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_PADDING)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_space(&child, &p, NGX_HTTP_KEYLESS_PAD_TO - len)) {
 			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
@@ -1312,7 +1311,8 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		CBS *out)
 {
 	ngx_http_keyless_operation_t opcode = 0;
-	uint8_t tag, v, vv;
+	uint16_t tag;
+	uint8_t v, vv;
 	CBS msg, child, payload;
 	int saw_opcode = 0, saw_payload = 0, saw_padding = 0, is_authorised = 0;
 	uint8_t remote_authority_id[8], remote_authority_signature[ED25519_SIGNATURE_LEN],
@@ -1363,7 +1363,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	}
 
 	while (CBS_len(&msg) != 0) {
-		if (!CBS_get_u8(&msg, &tag)
+		if (!CBS_get_u16(&msg, &tag)
 			|| !CBS_get_u16_length_prefixed(&msg, &child)) {
 			ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
 			return ssl_private_key_failure;
@@ -1371,31 +1371,15 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 
 		switch (tag) {
 			case NGX_HTTP_KEYLESS_TAG_OPCODE:
-				if (saw_opcode) {
+				if (saw_opcode || CBS_len(&child) != 2) {
 					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
 						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
 					return ssl_private_key_failure;
 				}
 
-				switch (CBS_len(&child)) {
-					case 1:
-						if (!CBS_get_u8(&child, (uint8_t *)&opcode)) {
-							ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
-							return ssl_private_key_failure;
-						}
-
-						break;
-					case 2:
-						if (!CBS_get_u16(&child, (uint16_t *)&opcode)) {
-							ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
-							return ssl_private_key_failure;
-						}
-
-						break;
-					default:
-						ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
-							ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
-						return ssl_private_key_failure;
+				if (!CBS_get_u16(&child, (uint16_t *)&opcode)) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+					return ssl_private_key_failure;
 				}
 
 				saw_opcode = 1;
@@ -1472,29 +1456,19 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 			*out = payload;
 			return ssl_private_key_success;
 		case NGX_HTTP_KEYLESS_OP_ERROR:
-			switch (CBS_len(&payload)) {
-				case 1:
-					if (!CBS_get_u8(&payload, (uint8_t *)&op->error)) {
-						ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
-						return ssl_private_key_failure;
-					}
-
-					break;
-				case 2:
-					if (!CBS_get_u16(&payload, (uint16_t *)&op->error)) {
-						ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
-						return ssl_private_key_failure;
-					}
-
-					break;
-				default:
-					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
-						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
-					return ssl_private_key_failure;
+			if (CBS_len(&payload) != 2) {
+				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+					ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+				return ssl_private_key_failure;
 			}
 
-			ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless error: %s",
-				ngx_http_keyless_error_string(op->error));
+			if (!CBS_get_u16(&payload, (uint16_t *)&op->error)) {
+				ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+			} else {
+				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless error: %s",
+					ngx_http_keyless_error_string(op->error));
+			}
+
 			return ssl_private_key_failure;
 		case NGX_HTTP_KEYLESS_OP_RSA_DECRYPT:
 		case NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW:
