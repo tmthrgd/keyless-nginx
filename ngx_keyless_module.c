@@ -48,6 +48,9 @@ enum {
 	// Padding
 	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x0020,
 
+	// The stapled OCSP response
+	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE = 0x0101,
+
 	// The range [0xc0, 0xff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
 	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc000,
@@ -173,6 +176,9 @@ typedef struct {
 
 	ngx_http_keyless_error_t error;
 	const uint8_t *ski;
+
+	const uint8_t *ocsp_response;
+	size_t ocsp_response_length;
 
 	ngx_log_t *log;
 
@@ -788,6 +794,13 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	SSL_certs_clear(ssl);
 	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
+
+	if (conn->op->ocsp_response && !SSL_set_ocsp_response(ssl,
+			conn->op->ocsp_response, conn->op->ocsp_response_length)) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+			"SSL_set_ocsp_response(...) failed");
+		goto error;
+	}
 
 	if (conf->shm_zone) {
 		hash = ngx_crc32_short(conn->ski, SHA_DIGEST_LENGTH);
@@ -1433,6 +1446,16 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				}
 
 				op->ski = CBS_data(&child);
+				break;
+			case NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE:
+				if (op->ocsp_response) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
+				}
+
+				op->ocsp_response = CBS_data(&child);
+				op->ocsp_response_length = CBS_len(&child);
 				break;
 			case NGX_HTTP_KEYLESS_TAG_DIGEST:
 			case NGX_HTTP_KEYLESS_TAG_SNI:
