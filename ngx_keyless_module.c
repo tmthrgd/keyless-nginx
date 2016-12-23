@@ -29,6 +29,7 @@
 #define NGX_HTTP_KEYLESS_PAD_TO 1024
 
 enum {
+	// The range [0x0000, 0x1000) is for tags taken from Cloudflare's upstream.
 	// [Deprecated]: SHA256 hash of RSA public key
 	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x0001,
 	// Server Name Identifier
@@ -48,6 +49,7 @@ enum {
 	// Padding
 	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x0020,
 
+	// The range [0x1000, 0xc000) is for tags from our protocol version.
 	// The stapled OCSP response
 	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE = 0x0101,
 
@@ -57,6 +59,8 @@ enum {
 };
 
 typedef enum {
+	// The range [0x0000, 0x1000) is for opcodes taken from Cloudflare's upstream.
+
 	// Decrypt data using RSA with or without padding
 	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT     = 0x0001,
 	NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW = 0x0008,
@@ -98,10 +102,13 @@ typedef enum {
 	NGX_HTTP_KEYLESS_OP_RESPONSE = 0x00F0,
 	NGX_HTTP_KEYLESS_OP_ERROR    = 0x00FF,
 
+	// The range [0x1000, 0xc000) is for opcodes from our protocol version.
+
 	// The range [0xc000, 0xffff) is reserved for private opcodes.
 } ngx_http_keyless_operation_t;
 
 typedef enum {
+	// The range [0x0000, 0x1000) is for errors taken from Cloudflare's upstream.
 	// No error
 	NGX_HTTP_KEYLESS_ERROR_NONE              = 0x0000,
 	// Cryptographic error
@@ -123,6 +130,7 @@ typedef enum {
 	// Certificate not found
 	NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND    = 0x0009,
 
+	// The range [0x1000, 0xc000) is for errors from our protocol version.
 	// The client was not authorised to perform that request.
 	NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED = 0x0101,
 
