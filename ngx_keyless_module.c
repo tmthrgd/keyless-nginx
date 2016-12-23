@@ -120,9 +120,10 @@ typedef enum {
 	// Certificate not found
 	NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND    = 0x0009,
 
-	// The range [0xc000, 0xffff) is reserved for private errors.
 	// The client was not authorised to perform that request.
-	NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED = 0xc000,
+	NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED = 0x0101,
+
+	// The range [0xc000, 0xffff) is reserved for private errors.
 } ngx_http_keyless_error_t;
 
 typedef struct {
