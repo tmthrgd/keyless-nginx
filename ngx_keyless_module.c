@@ -51,7 +51,7 @@ enum {
 	// The stapled OCSP response
 	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE = 0x0101,
 
-	// The range [0xc0, 0xff) is reserved for private tags.
+	// The range [0xc000, 0xffff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
 	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc000,
 };
