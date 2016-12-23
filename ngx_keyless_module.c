@@ -23,8 +23,7 @@
 #define NGX_HTTP_KEYLESS_VERSION_MAJOR 2
 #define NGX_HTTP_KEYLESS_VERSION_MINOR 0
 
-#define NGX_HTTP_KEYLESS_HEADER_LENGTH (8 + 8 + ED25519_SIGNATURE_LEN + ED25519_PUBLIC_KEY_LEN \
-		+ ED25519_SIGNATURE_LEN)
+#define NGX_HTTP_KEYLESS_HEADER_LENGTH (8 + ED25519_PUBLIC_KEY_LEN + ED25519_SIGNATURE_LEN)
 
 #define NGX_HTTP_KEYLESS_PAD_TO 1024
 
@@ -52,6 +51,8 @@ enum {
 	// The range [0x0100, 0xc000) is for tags from our protocol version.
 	// The stapled OCSP response
 	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE = 0x0101,
+	// The request authorisation
+	NGX_HTTP_KEYLESS_TAG_AUTHORISATION = 0x0102,
 
 	// The range [0xc000, 0xffff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
@@ -1126,14 +1127,17 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MINOR)
 		|| !CBB_add_u16(&payload, 0) // length placeholder
 		|| !CBB_add_u32(&payload, op->id)
-		|| !CBB_add_bytes(&payload, conf->authority.id, 8)
-		|| !CBB_add_bytes(&payload, conf->authority.signature, ED25519_SIGNATURE_LEN)
 		|| !CBB_add_bytes(&payload, conf->public_key, ED25519_PUBLIC_KEY_LEN)
 		|| !CBB_add_space(&payload, NULL, ED25519_SIGNATURE_LEN) // signature placeholder
 		// opcode tag
 		|| !CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
 		|| !CBB_add_u16_length_prefixed(&payload, &child)
-		|| !CBB_add_u16(&child, opcode)) {
+		|| !CBB_add_u16(&child, opcode)
+		// authorisation tag
+		|| !CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_AUTHORISATION)
+		|| !CBB_add_u16_length_prefixed(&payload, &child)
+		|| !CBB_add_bytes(&child, conf->authority.id, 8)
+		|| !CBB_add_bytes(&child, conf->authority.signature, ED25519_SIGNATURE_LEN)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
 		goto error;
 	}
@@ -1336,7 +1340,8 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	uint16_t tag;
 	uint8_t v, vv;
 	CBS msg, child, payload;
-	int saw_opcode = 0, saw_payload = 0, saw_padding = 0, is_authorised = 0;
+	int saw_opcode = 0, saw_payload = 0, saw_padding = 0, saw_authorisation = 0,
+		is_authorised = 0;
 	uint8_t remote_authority_id[8], remote_authority_signature[ED25519_SIGNATURE_LEN],
 		remote_public[ED25519_PUBLIC_KEY_LEN], remote_signature[ED25519_SIGNATURE_LEN];
 	ngx_queue_t *q;
@@ -1354,8 +1359,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	CBS_init(&msg, op->recv.pos, op->recv.last - op->recv.pos);
 
 	if (!CBS_skip(&msg, 8)
-		|| !CBS_copy_bytes(&msg, remote_authority_id, 8)
-		|| !CBS_copy_bytes(&msg, remote_authority_signature, ED25519_SIGNATURE_LEN)
 		|| !CBS_copy_bytes(&msg, remote_public, ED25519_PUBLIC_KEY_LEN)
 		|| !CBS_copy_bytes(&msg, remote_signature, ED25519_SIGNATURE_LEN)) {
 		ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
@@ -1364,23 +1367,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 
 	if (!ED25519_verify(CBS_data(&msg), CBS_len(&msg), remote_signature, remote_public)) {
 		ngx_log_error(NGX_LOG_ERR, op->log, 0, "ED25519_verify failed");
-		return ssl_private_key_failure;
-	}
-
-	for (q = ngx_queue_head(&op->conf->authorities);
-		q != ngx_queue_sentinel(&op->conf->authorities);
-		q = ngx_queue_next(q)) {
-		authority = ngx_queue_data(q, ngx_http_keyless_authority_t, queue);
-
-		if (ngx_memcmp(authority->id, remote_authority_id, 8) == 0) {
-			is_authorised = ED25519_verify(remote_public, ED25519_PUBLIC_KEY_LEN,
-				remote_authority_signature, authority->public_key);
-			break;
-		}
-	}
-
-	if (!is_authorised) {
-		ngx_log_error(NGX_LOG_ERR, op->log, 0, "server not authorised");
 		return ssl_private_key_failure;
 	}
 
@@ -1466,6 +1452,39 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				op->ocsp_response = CBS_data(&child);
 				op->ocsp_response_length = CBS_len(&child);
 				break;
+			case NGX_HTTP_KEYLESS_TAG_AUTHORISATION:
+				if (saw_authorisation) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
+						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+					return ssl_private_key_failure;
+				}
+
+				if (!CBS_copy_bytes(&child, remote_authority_id, 8)
+					|| !CBS_copy_bytes(&child, remote_authority_signature,
+						ED25519_SIGNATURE_LEN)) {
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+					return ssl_private_key_failure;
+				}
+
+				for (q = ngx_queue_head(&op->conf->authorities);
+					q != ngx_queue_sentinel(&op->conf->authorities);
+					q = ngx_queue_next(q)) {
+					authority = ngx_queue_data(q,
+						ngx_http_keyless_authority_t, queue);
+
+					if (ngx_memcmp(authority->id, remote_authority_id, 8)
+							!= 0) {
+						continue;
+					}
+
+					is_authorised = ED25519_verify(remote_public,
+						ED25519_PUBLIC_KEY_LEN, remote_authority_signature,
+						authority->public_key);
+					break;
+				}
+
+				saw_authorisation = 1;
+				break;
 			case NGX_HTTP_KEYLESS_TAG_DIGEST:
 			case NGX_HTTP_KEYLESS_TAG_SNI:
 			case NGX_HTTP_KEYLESS_TAG_CLIENT_IP:
@@ -1477,9 +1496,14 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 		}
 	}
 
-	if (!saw_opcode || !saw_payload) {
+	if (!saw_opcode || !saw_payload || !saw_authorisation) {
 		ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
 			ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
+		return ssl_private_key_failure;
+	}
+
+	if (!is_authorised) {
+		ngx_log_error(NGX_LOG_ERR, op->log, 0, "server not authorised");
 		return ssl_private_key_failure;
 	}
 
@@ -1626,8 +1650,6 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		|| !CBS_skip(&payload, 1)
 		|| !CBS_get_u16(&payload, &length)
 		|| !CBS_get_u32(&payload, &id)
-		|| !CBS_skip(&payload, 8)
-		|| !CBS_skip(&payload, ED25519_SIGNATURE_LEN)
 		|| !CBS_skip(&payload, ED25519_PUBLIC_KEY_LEN)
 		|| !CBS_skip(&payload, ED25519_SIGNATURE_LEN)
 		|| length != CBS_len(&payload)) {
