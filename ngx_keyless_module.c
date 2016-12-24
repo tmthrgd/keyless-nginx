@@ -1453,7 +1453,8 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				op->ocsp_response_length = CBS_len(&child);
 				break;
 			case NGX_HTTP_KEYLESS_TAG_AUTHORISATION:
-				if (saw_authorisation) {
+				if (saw_authorisation
+					|| CBS_len(&child) != 8 + ED25519_SIGNATURE_LEN) {
 					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
 						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
 					return ssl_private_key_failure;
