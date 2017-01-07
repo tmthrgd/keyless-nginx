@@ -1267,11 +1267,6 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		ngx_memzero(p, NGX_HTTP_KEYLESS_PAD_TO - len);
 	}
 
-	if (!CBB_flush(&payload)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_flush failed");
-		goto error;
-	}
-
 	if (!CBB_finish(&payload, &p, &len)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_finish failed");
 		goto error;
