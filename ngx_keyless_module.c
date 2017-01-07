@@ -1121,7 +1121,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		op->id = ngx_atomic_fetch_add(&conf->id, 1);
 	} while (!op->id);
 
-	if (!CBB_init(&payload, NGX_HTTP_KEYLESS_PAD_TO + 4)
+	if (!CBB_init(&payload, NGX_HTTP_KEYLESS_HEADER_LENGTH + NGX_HTTP_KEYLESS_PAD_TO + 4)
 		// header
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MAJOR)
 		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MINOR)
