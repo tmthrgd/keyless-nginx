@@ -1254,7 +1254,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	len = CBB_len(&payload);
+	len = CBB_len(&payload) - NGX_HTTP_KEYLESS_HEADER_LENGTH;
 	if (len < NGX_HTTP_KEYLESS_PAD_TO) {
 		// padding tag
 		if (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_PADDING)
