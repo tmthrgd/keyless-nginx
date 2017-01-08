@@ -1931,7 +1931,7 @@ static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error)
 		case NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED:
 			return "client not authorised";
 		default:
-			return "unkown error";
+			return "unknown error";
 	}
 }
 
