@@ -1189,7 +1189,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 {
 	ngx_http_keyless_operation_t opcode = 0;
 	uint16_t tag;
-	uint8_t v, vv;
 	CBS msg, child, payload;
 	int saw_opcode = 0, saw_payload = 0, saw_padding = 0, saw_authorisation = 0;
 
@@ -1243,28 +1242,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				break;
 			case NGX_HTTP_KEYLESS_TAG_PADDING:
 				if (saw_padding) {
-					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
-						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
-					return ssl_private_key_failure;
-				}
-
-				v = 0;
-
-				while (CBS_len(&child) != 0) {
-					if (!CBS_get_u8(&child, &vv)) {
-						ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
-						return ssl_private_key_failure;
-					}
-
-					v |= vv;
-				}
-
-				v = ~v;
-				v &= v >> 4;
-				v &= v >> 2;
-				v &= v >> 1;
-
-				if (v == 0) {
 					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
 						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
 					return ssl_private_key_failure;
