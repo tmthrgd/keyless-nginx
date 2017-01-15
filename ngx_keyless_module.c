@@ -209,6 +209,8 @@ typedef struct {
 	ngx_rbtree_node_t node;
 	ngx_queue_t queue;
 
+	unsigned char id[SHA256_DIGEST_LENGTH];
+
 	time_t last_used;
 
 	STACK_OF(X509) *chain;
@@ -510,8 +512,8 @@ static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rb
 			certificate = (ngx_http_keyless_cached_certificate_t *)node;
 			certificate_temp = (ngx_http_keyless_cached_certificate_t *)temp;
 
-			if (ngx_memn2cmp(certificate->ski, certificate_temp->ski,
-					SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH) < 0) {
+			if (ngx_memn2cmp(certificate->id, certificate_temp->id,
+					SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH) < 0) {
 				p = &temp->left;
 			} else {
 				p = &temp->right;
@@ -603,6 +605,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	ngx_http_keyless_cache_t *cache = NULL /* 'may be used uninitialized' warning */;
 	ngx_rbtree_node_t *node, *sentinel;
 	ngx_http_keyless_cached_certificate_t *certificate, *min_cert;
+	u_char id[SHA256_DIGEST_LENGTH];
 	uint32_t hash = 0 /* 'may be used uninitialized' warning */;
 #if NGX_DEBUG
 	u_char buf[SHA_DIGEST_LENGTH*2];
@@ -678,7 +681,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	}
 
 	if (conf->shm_zone) {
-		hash = ngx_crc32_short(conn->ski, SHA_DIGEST_LENGTH);
+		SHA256(CBS_data(&payload), CBS_len(&payload), id);
+		hash = ngx_crc32_short(id, SHA256_DIGEST_LENGTH);
 
 		cache = conf->shm_zone->data;
 		shpool = (ngx_slab_pool_t *)conf->shm_zone->shm.addr;
@@ -699,8 +703,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 			certificate = (ngx_http_keyless_cached_certificate_t *)node;
 
-			rc = ngx_memn2cmp(conn->ski, certificate->ski,
-				SHA_DIGEST_LENGTH, SHA_DIGEST_LENGTH);
+			rc = ngx_memn2cmp(id, certificate->id,
+				SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
 			if (rc < 0) {
 				node = node->left;
 				continue;
@@ -886,6 +890,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		}
 
 		certificate->node.key = hash;
+
+		ngx_memcpy(certificate->id, id, SHA256_DIGEST_LENGTH);
 
 		certificate->last_used = ngx_time();
 
