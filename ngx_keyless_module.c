@@ -550,7 +550,7 @@ static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client
 
 	conn = ngx_pcalloc(c->pool, sizeof(ngx_http_keyless_conn_t));
 	if (!conn || !SSL_set_ex_data(c->ssl->connection, g_ssl_exdata_conn_index, conn)) {
-		return 0;
+		return -1;
 	}
 
 	cipher_list = SSL_get_ciphers(client_hello->ssl);
@@ -559,7 +559,7 @@ static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client
 
 	while (CBS_len(&cipher_suites) != 0) {
 		if (!CBS_get_u16(&cipher_suites, &cipher_suite)) {
-			return 0;
+			return -1;
 		}
 
 		cipher = SSL_get_cipher_by_value(cipher_suite);
@@ -581,7 +581,7 @@ static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client
 			|| CBS_len(&sig_algs) % 2 != 0
 			|| !CBS_stow(&sig_algs, &conn->get_cert.sig_algs,
 				&conn->get_cert.sig_algs_len)) {
-			return 0;
+			return -1;
 		}
 
 		cln->handler = OPENSSL_free;
