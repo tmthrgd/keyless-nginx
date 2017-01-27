@@ -1137,6 +1137,11 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
+	if (len - NGX_HTTP_KEYLESS_HEADER_LENGTH > UINT16_MAX) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "body too large to encode length");
+		goto error;
+	}
+
 	*(uint16_t *)(p + 2) = htons(len - NGX_HTTP_KEYLESS_HEADER_LENGTH); // set length
 
 	op->send.start = p;
