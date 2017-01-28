@@ -449,7 +449,7 @@ static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client
 
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 {
-	int ret = 0, had_leaf = 0;
+	int ret = 0;
 	ngx_connection_t *c;
 	ngx_http_keyless_srv_conf_t *conf;
 	ngx_http_keyless_conn_t *conn;
@@ -535,35 +535,16 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SSL_certs_clear(ssl);
 	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
-	while (CBS_len(&payload) != 0) {
-		if (!CBS_get_u16_length_prefixed(&payload, &child)) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
-			goto error;
-		}
+	if (!CBS_get_u16_length_prefixed(&payload, &child)) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
+		goto error;
+	}
 
-		if (!had_leaf) {
-			if (!SSL_use_raw_certificate(ssl, CBS_data(&child), CBS_len(&child))) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"SSL_use_raw_certificate(...) failed");
-				goto error;
-			}
-
-			public_key = ngx_http_keyless_ssl_cert_parse_pubkey(&child);
-			if (!public_key) {
-				ngx_log_error(NGX_LOG_EMERG, c->log, 0,
-					"ngx_http_keyless_ssl_cert_parse_pubkey failed");
-				goto error;
-			}
-
-			had_leaf = 1;
-			continue;
-		}
-
-		if (!SSL_add_raw_chain_cert(ssl, CBS_data(&child), CBS_len(&child))) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"SSL_add_raw_chain_cert(...) failed");
-			goto error;
-		}
+	public_key = ngx_http_keyless_ssl_cert_parse_pubkey(&child);
+	if (!public_key) {
+		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
+			"ngx_http_keyless_ssl_cert_parse_pubkey failed");
+		goto error;
 	}
 
 	switch (EVP_PKEY_id(public_key)) {
@@ -577,6 +558,26 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	}
 
 	conn->key.sig_len = EVP_PKEY_size(public_key);
+	EVP_PKEY_free(public_key);
+
+	if (!SSL_use_raw_certificate(ssl, CBS_data(&child), CBS_len(&child))) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+			"SSL_use_raw_certificate(...) failed");
+		goto error;
+	}
+
+	while (CBS_len(&payload) != 0) {
+		if (!CBS_get_u16_length_prefixed(&payload, &child)) {
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
+			goto error;
+		}
+
+		if (!SSL_add_raw_chain_cert(ssl, CBS_data(&child), CBS_len(&child))) {
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
+				"SSL_add_raw_chain_cert(...) failed");
+			goto error;
+		}
+	}
 
 	ret = 1;
 
@@ -585,7 +586,6 @@ error:
 		ERR_clear_error();
 	}
 
-	EVP_PKEY_free(public_key);
 	ngx_http_keyless_cleanup_operation(conn->op);
 	return ret;
 }
