@@ -151,11 +151,10 @@ typedef struct {
 	ngx_event_t timer;
 	ngx_pool_cleanup_t *cln;
 
-	unsigned int id;
+	uint32_t id;
 
 	ngx_http_keyless_error_t error;
 	const uint8_t *ski;
-
 	const uint8_t *ocsp_response;
 	size_t ocsp_response_length;
 
@@ -176,7 +175,7 @@ typedef struct {
 		size_t sig_len;
 	} key;
 
-	unsigned char ski[SHA_DIGEST_LENGTH];
+	uint8_t ski[SHA_DIGEST_LENGTH];
 
 	struct {
 		uint8_t *sig_algs;
@@ -1216,7 +1215,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 	ngx_http_keyless_conn_t *conn;
 	const EVP_MD *md;
 	uint8_t hash[EVP_MAX_MD_SIZE];
-	unsigned hash_len;
+	unsigned int hash_len;
 
 	switch (signature_algorithm) {
 		case SSL_SIGN_RSA_PKCS1_MD5_SHA1:
