@@ -4,12 +4,6 @@
 #include <ngx_event.h>
 #include <ngx_http.h>
 
-#include <assert.h>
-#include <errno.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-
 #include <openssl/crypto.h>
 #include <openssl/digest.h>
 #include <openssl/sha.h>
