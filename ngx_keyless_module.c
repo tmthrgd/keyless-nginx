@@ -41,8 +41,6 @@ enum {
 	// The range [0x0100, 0xc000) is for tags from our protocol version.
 	// The stapled OCSP response
 	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE = 0x0101,
-	// The request authorisation
-	NGX_HTTP_KEYLESS_TAG_AUTHORISATION = 0x0102,
 
 	// The range [0xc000, 0xffff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
