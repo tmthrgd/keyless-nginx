@@ -573,9 +573,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				EVP_PKEY_get0_EC_KEY(public_key)));
 			break;
 		default:
-			ngx_log_error(NGX_LOG_EMERG, c->log, 0,
-				"certificate does not contain a supported key type");
-			goto error;
+			conn->key.type = NID_undef;
+			break;
 	}
 
 	conn->key.sig_len = EVP_PKEY_size(public_key);
