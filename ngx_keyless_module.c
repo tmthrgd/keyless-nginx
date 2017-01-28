@@ -458,7 +458,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SSL *ssl;
 	CBS payload, child;
 	EVP_PKEY *public_key = NULL;
-	SHA256_CTX ctx;
+	SHA256_CTX sha_ctx;
 	uint8_t sid_ctx[SHA256_DIGEST_LENGTH];
 
 	c = ngx_ssl_get_connection(ssl_conn);
@@ -517,10 +517,11 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	ngx_memcpy(conn->ski, conn->op->ski, SHA_DIGEST_LENGTH);
 
-	SHA256_Init(&ctx);
-	SHA256_Update(&ctx, ngx_http_keyless_sess_id_ctx.data, ngx_http_keyless_sess_id_ctx.len);
-	SHA256_Update(&ctx, CBS_data(&payload), CBS_len(&payload));
-	SHA256_Final(sid_ctx, &ctx);
+	SHA256_Init(&sha_ctx);
+	SHA256_Update(&sha_ctx, ngx_http_keyless_sess_id_ctx.data,
+		ngx_http_keyless_sess_id_ctx.len);
+	SHA256_Update(&sha_ctx, CBS_data(&payload), CBS_len(&payload));
+	SHA256_Final(sid_ctx, &sha_ctx);
 
 	if (!SSL_set_session_id_context(ssl, sid_ctx, 16)) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_set_session_id_context() failed");
