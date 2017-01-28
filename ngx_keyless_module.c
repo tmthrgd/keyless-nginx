@@ -852,7 +852,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	ngx_http_keyless_operation_t opcode = 0;
 	uint16_t tag;
 	CBS msg, child, payload;
-	int saw_opcode = 0, saw_payload = 0, saw_padding = 0, saw_authorisation = 0;
+	int saw_opcode = 0, saw_payload = 0, saw_padding = 0;
 
 	if (op->recv.last - op->recv.pos < NGX_HTTP_KEYLESS_HEADER_LENGTH) {
 		if (op->timer.timedout) {
@@ -929,15 +929,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 
 				op->ocsp_response = CBS_data(&child);
 				op->ocsp_response_length = CBS_len(&child);
-				break;
-			case NGX_HTTP_KEYLESS_TAG_AUTHORISATION:
-				if (saw_authorisation) {
-					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
-						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
-					return ssl_private_key_failure;
-				}
-
-				saw_authorisation = 1;
 				break;
 			case NGX_HTTP_KEYLESS_TAG_DIGEST:
 			case NGX_HTTP_KEYLESS_TAG_SNI:
