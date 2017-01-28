@@ -5,7 +5,7 @@
 #include <ngx_http.h>
 
 #include <openssl/crypto.h>
-#include <openssl/digest.h>
+#include <openssl/md5.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 
@@ -1213,37 +1213,47 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 	ngx_http_keyless_operation_t opcode;
 	ngx_connection_t *c;
 	ngx_http_keyless_conn_t *conn;
-	const EVP_MD *md;
 	uint8_t hash[EVP_MAX_MD_SIZE];
-	unsigned int hash_len;
+	size_t hash_len;
 
 	switch (signature_algorithm) {
 		case SSL_SIGN_RSA_PKCS1_MD5_SHA1:
 			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_MD5SHA1;
-			md = EVP_md5_sha1();
+
+			MD5(in, in_len, hash);
+			SHA1(in, in_len, hash + MD5_DIGEST_LENGTH);
+			hash_len = MD5_DIGEST_LENGTH + SHA_DIGEST_LENGTH;
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA1:
 		case SSL_SIGN_ECDSA_SHA1:
 			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA1;
-			md = EVP_sha1();
+
+			SHA1(in, in_len, hash);
+			hash_len = SHA_DIGEST_LENGTH;
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA256:
 		case SSL_SIGN_ECDSA_SECP256R1_SHA256:
 		case SSL_SIGN_RSA_PSS_SHA256:
 			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA256;
-			md = EVP_sha256();
+
+			SHA256(in, in_len, hash);
+			hash_len = SHA256_DIGEST_LENGTH;
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA384:
 		case SSL_SIGN_ECDSA_SECP384R1_SHA384:
 		case SSL_SIGN_RSA_PSS_SHA384:
 			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA384;
-			md = EVP_sha384();
+
+			SHA384(in, in_len, hash);
+			hash_len = SHA384_DIGEST_LENGTH;
 			break;
 		case SSL_SIGN_RSA_PKCS1_SHA512:
 		case SSL_SIGN_ECDSA_SECP521R1_SHA512:
 		case SSL_SIGN_RSA_PSS_SHA512:
 			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA512;
-			md = EVP_sha512();
+
+			SHA512(in, in_len, hash);
+			hash_len = SHA512_DIGEST_LENGTH;
 			break;
 		default:
 			return ssl_private_key_failure;
@@ -1267,10 +1277,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 
 	conn = SSL_get_ex_data(c->ssl->connection, g_ssl_exdata_conn_index);
 	if (!conn) {
-		return ssl_private_key_failure;
-	}
-
-	if (!EVP_Digest(in, in_len, hash, &hash_len, md, NULL)) {
 		return ssl_private_key_failure;
 	}
 
