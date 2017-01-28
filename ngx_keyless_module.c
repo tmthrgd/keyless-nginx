@@ -503,7 +503,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 				}
 
 				ret = 1;
-				goto error;
 			}
 
 			goto error;
