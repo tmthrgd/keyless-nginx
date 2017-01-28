@@ -15,7 +15,7 @@
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
 
-#define NGX_HTTP_KEYLESS_OP_BUFFER_SIZE 2*1024
+#define NGX_HTTP_KEYLESS_OP_BUFFER_SIZE (2*1024)
 
 #define NGX_HTTP_KEYLESS_VERSION (0x80 | 1)
 
