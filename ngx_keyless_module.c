@@ -451,12 +451,12 @@ static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client
 
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 {
-	int ret = 0;
+	int ret = 0, had_leaf = 0;
 	ngx_connection_t *c;
 	ngx_http_keyless_srv_conf_t *conf;
 	ngx_http_keyless_conn_t *conn;
 	SSL *ssl;
-	CBS payload, child, leaf;
+	CBS payload, child;
 	EVP_PKEY *public_key = NULL;
 	SHA256_CTX ctx;
 	uint8_t sid_ctx[SHA256_DIGEST_LENGTH];
@@ -534,8 +534,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		goto error;
 	}
 
-	ngx_memzero(&leaf, sizeof(CBS));
-
 	SSL_certs_clear(ssl);
 	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
@@ -545,26 +543,29 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			goto error;
 		}
 
-		if (CBS_len(&leaf) == 0) {
+		if (!had_leaf) {
 			if (!SSL_use_raw_certificate(ssl, CBS_data(&child), CBS_len(&child))) {
 				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 					"SSL_use_raw_certificate(...) failed");
 				goto error;
 			}
 
-			leaf = child;
-		} else if (!SSL_add_raw_chain_cert(ssl, CBS_data(&child), CBS_len(&child))) {
+			public_key = ngx_http_keyless_ssl_cert_parse_pubkey(&child);
+			if (!public_key) {
+				ngx_log_error(NGX_LOG_EMERG, c->log, 0,
+					"ngx_http_keyless_ssl_cert_parse_pubkey failed");
+				goto error;
+			}
+
+			had_leaf = 1;
+			continue;
+		}
+
+		if (!SSL_add_raw_chain_cert(ssl, CBS_data(&child), CBS_len(&child))) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 				"SSL_add_raw_chain_cert(...) failed");
 			goto error;
 		}
-	}
-
-	public_key = ngx_http_keyless_ssl_cert_parse_pubkey(&leaf);
-	if (!public_key) {
-		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_ssl_cert_parse_pubkey failed");
-		goto error;
 	}
 
 	switch (EVP_PKEY_id(public_key)) {
