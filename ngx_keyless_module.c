@@ -324,7 +324,7 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 
 	ssl = ngx_http_conf_get_module_srv_conf(cf, ngx_http_ssl_module);
 	if (!ssl || !ssl->ssl.ctx) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no ssl configured for the server");
+		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no SSL configured for the server");
 		return NGX_CONF_ERROR;
 	}
 
@@ -334,7 +334,7 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	u.no_resolve = 1;
 
 	if (ngx_parse_url(cf->pool, &u) != NGX_OK || !u.addrs || !u.addrs[0].sockaddr) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "invalid url given in ether directive");
+		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "invalid URL given in ether directive");
 		return NGX_CONF_ERROR;
 	}
 
@@ -349,7 +349,7 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	conf->pc.log_error = NGX_ERROR_ERR;
 
 	if (RAND_bytes((uint8_t *)&conf->id, sizeof(conf->id)) != 1) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "RAND_bytes failed");
+		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "RAND_bytes(...) failed");
 		return NGX_CONF_ERROR;
 	}
 
@@ -365,7 +365,7 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 		g_ssl_ctx_exdata_conf_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_ctx_exdata_conf_index == -1) {
 			ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
-				"SSL_CTX_get_ex_new_index failed");
+				"SSL_CTX_get_ex_new_index(...) failed");
 			return NGX_CONF_ERROR;
 		}
 	}
@@ -373,13 +373,14 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	if (g_ssl_exdata_conn_index == -1) {
 		g_ssl_exdata_conn_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
 		if (g_ssl_exdata_conn_index == -1) {
-			ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "SSL_get_ex_new_index failed");
+			ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
+				"SSL_get_ex_new_index(...) failed");
 			return NGX_CONF_ERROR;
 		}
 	}
 
 	if (!SSL_CTX_set_ex_data(ssl->ssl.ctx, g_ssl_ctx_exdata_conf_index, conf)) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "SSL_CTX_set_ex_data failed");
+		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "SSL_CTX_set_ex_data(...) failed");
 		return NGX_CONF_ERROR;
 	}
 
@@ -518,7 +519,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SHA256_Final(sid_ctx, &sha_ctx);
 
 	if (!SSL_set_session_id_context(ssl, sid_ctx, 16)) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_set_session_id_context() failed");
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_set_session_id_context(...) failed");
 		goto error;
 	}
 
@@ -558,7 +559,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	EVP_PKEY_free(public_key);
 
 	if (!SSL_use_certificate_ASN1(ssl, CBS_data(&child), CBS_len(&child))) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_use_raw_certificate(...) failed");
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_use_certificate_ASN1(...) failed");
 		goto error;
 	}
 
@@ -570,7 +571,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 		if (!SSL_add_chain_cert_ASN1(ssl, CBS_data(&child), CBS_len(&child))) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"SSL_add_raw_chain_cert(...) failed");
+				"SSL_add_chain_cert_ASN1(...) failed");
 			goto error;
 		}
 	}
@@ -615,7 +616,8 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	if (!conf->pc.connection) {
 		rc = ngx_event_connect_peer(&conf->pc);
 		if (rc == NGX_ERROR || rc == NGX_DECLINED) {
-			ngx_log_error(NGX_LOG_EMERG, c->log, 0, "ngx_event_connect_peer failed");
+			ngx_log_error(NGX_LOG_EMERG, c->log, 0,
+				"ngx_event_connect_peer(...) failed");
 			goto error;
 		}
 
@@ -627,7 +629,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	op = ngx_pcalloc(conf->pool, sizeof(ngx_http_keyless_op_t));
 	if (!op) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_pcalloc failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_pcalloc(...) failed");
 		goto error;
 	}
 
@@ -648,7 +650,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		|| !CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
 		|| !CBB_add_u16_length_prefixed(&payload, &child)
 		|| !CBB_add_u16(&child, opcode)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
@@ -657,7 +659,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SKI)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, conn->ski, SHA_DIGEST_LENGTH))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
@@ -666,7 +668,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SNI)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, sni, ngx_strlen(sni)))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
@@ -695,7 +697,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_CLIENT_IP)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, ip, ip_len))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
@@ -725,11 +727,11 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 			&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SERVER_IP)
 				|| !CBB_add_u16_length_prefixed(&payload, &child)
 				|| !CBB_add_bytes(&child, ip, ip_len))) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 			goto error;
 		}
 	} else {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_connection_local_sockaddr failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_connection_local_sockaddr(...) failed");
 	}
 
 	if (conn->get_cert.sig_algs
@@ -738,7 +740,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, conn->get_cert.sig_algs,
 				conn->get_cert.sig_algs_len))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
@@ -747,7 +749,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_u8(&child, conn->get_cert.ecdsa_cipher))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
@@ -755,12 +757,12 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_PAYLOAD)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, in, in_len))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
 	if (!CBB_flush(&payload)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_flush failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_flush(...) failed");
 		goto error;
 	}
 
@@ -770,7 +772,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		if (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_PADDING)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_space(&child, &p, NGX_HTTP_KEYLESS_PAD_TO - len)) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_* failed");
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 			goto error;
 		}
 
@@ -778,7 +780,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	}
 
 	if (!CBB_finish(&payload, &p, &len)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_finish failed");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_finish(...) failed");
 		goto error;
 	}
 
@@ -805,7 +807,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 		op->cln = ngx_pool_cleanup_add(c->pool, 0);
 		if (!op->cln) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_pool_cleanup_add failed");
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_pool_cleanup_add(...) failed");
 			goto error;
 		}
 
@@ -859,14 +861,14 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	CBS_init(&msg, op->recv.pos, op->recv.last - op->recv.pos);
 
 	if (!CBS_skip(&msg, NGX_HTTP_KEYLESS_HEADER_LENGTH)) {
-		ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_skip failed");
+		ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_skip(...) failed");
 		return ssl_private_key_failure;
 	}
 
 	while (CBS_len(&msg) != 0) {
 		if (!CBS_get_u16(&msg, &tag)
 			|| !CBS_get_u16_length_prefixed(&msg, &child)) {
-			ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+			ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_*(...) failed");
 			return ssl_private_key_failure;
 		}
 
@@ -879,7 +881,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				}
 
 				if (!CBS_get_u16(&child, (uint16_t *)&opcode)) {
-					ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+					ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_*(...) failed");
 					return ssl_private_key_failure;
 				}
 
@@ -952,7 +954,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 			}
 
 			if (!CBS_get_u16(&payload, (uint16_t *)&op->error)) {
-				ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_* failed");
+				ngx_log_error(NGX_LOG_ERR, op->log, 0, "CBS_*(...) failed");
 			} else {
 				ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless error: %s",
 					ngx_http_keyless_error_string(op->error));
@@ -1082,7 +1084,7 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		|| !CBS_get_u24(&payload, &length)
 		|| !CBS_get_u32(&payload, &id)
 		|| length != CBS_len(&payload)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_* failed or format error");
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_*(...) failed or format error");
 		goto cleanup;
 	}
 
@@ -1335,7 +1337,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 			ngx_log_error(NGX_LOG_ERR, c->log, 0, "payload longer than max_out");
 			rc = ssl_private_key_failure;
 		} else if (!CBS_copy_bytes(&payload, out, CBS_len(&payload))) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_copy_bytes failed");
+			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_copy_bytes(...) failed");
 			rc = ssl_private_key_failure;
 		}
 	}
