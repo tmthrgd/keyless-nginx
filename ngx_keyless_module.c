@@ -15,7 +15,6 @@
 #include <openssl/digest.h>
 #include <openssl/sha.h>
 #include <openssl/ssl.h>
-#include <openssl/x509.h>
 
 #define NGX_HTTP_KEYLESS_OP_BUFFER_SIZE 2*1024
 
@@ -140,16 +139,12 @@ typedef enum {
 
 typedef struct {
 	ngx_str_t address;
-	ngx_str_t shm_name;
-	size_t shm_size;
 	ngx_msec_t timeout;
 	ngx_flag_t fallback;
 
 	ngx_peer_connection_t pc;
 
 	ngx_atomic_uint_t id;
-
-	ngx_shm_zone_t *shm_zone;
 
 	ngx_pool_t *pool;
 
@@ -199,37 +194,8 @@ typedef struct {
 	} get_cert;
 } ngx_http_keyless_conn_t;
 
-typedef struct {
-	ngx_rbtree_t session_rbtree;
-	ngx_rbtree_node_t sentinel;
-	ngx_queue_t expire_queue;
-} ngx_http_keyless_cache_t;
-
-typedef struct {
-	ngx_rbtree_node_t node;
-	ngx_queue_t queue;
-
-	unsigned char id[SHA256_DIGEST_LENGTH];
-
-	time_t last_used;
-
-	STACK_OF(X509) *chain;
-
-	int type;
-	size_t sig_len;
-
-	unsigned char ski[SHA_DIGEST_LENGTH];
-
-	unsigned char sid_ctx[EVP_MAX_MD_SIZE];
-	size_t sid_ctx_len;
-} ngx_http_keyless_cached_certificate_t;
-
 static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
-
-static ngx_int_t ngx_http_keyless_cache_init(ngx_shm_zone_t *shm_zone, void *data);
-static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node,
-		ngx_rbtree_node_t *sentinel);
 
 static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
@@ -259,12 +225,10 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 
 static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error);
 
-/* this is ngx_ssl_session_id_context from nginx-1.9.15/src/event/ngx_event_openssl.c */
-static ngx_int_t ngx_http_keyless_ssl_session_id_context(ngx_connection_t *c, ngx_str_t *sess_ctx,
-		X509 *cert);
+/* this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c */
+static EVP_PKEY *ngx_http_keyless_ssl_cert_parse_pubkey(const CBS *in);
 
-/* this is from nginx-1.9.15/src/http/modules/ngx_http_ssl_module.c */
-static ngx_str_t ngx_http_ssl_sess_id_ctx = ngx_string("HTTP");
+static ngx_str_t ngx_http_keyless_sess_id_ctx = ngx_string("keyless-HTTP");
 
 const SSL_PRIVATE_KEY_METHOD ngx_http_keyless_key_method = {
 	ngx_http_keyless_key_type,
@@ -284,20 +248,6 @@ static ngx_command_t ngx_http_keyless_module_commands[] = {
 	  ngx_conf_set_str_slot,
 	  NGX_HTTP_SRV_CONF_OFFSET,
 	  offsetof(ngx_http_keyless_srv_conf_t, address),
-	  NULL },
-
-	{ ngx_string("keyless_ssl_cache"),
-	  NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
-	  ngx_conf_set_str_slot,
-	  NGX_HTTP_SRV_CONF_OFFSET,
-	  offsetof(ngx_http_keyless_srv_conf_t, shm_name),
-	  NULL },
-
-	{ ngx_string("keyless_ssl_cache_size"),
-	  NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
-	  ngx_conf_set_size_slot,
-	  NGX_HTTP_SRV_CONF_OFFSET,
-	  offsetof(ngx_http_keyless_srv_conf_t, shm_size),
 	  NULL },
 
 	{ ngx_string("keyless_ssl_timeout"),
@@ -359,10 +309,8 @@ static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf)
 	 * set by ngx_pcalloc():
 	 *
 	 *     kcscf->address = { 0, NULL };
-	 *     kcscf->shm_name = { 0, NULL };
 	 */
 
-	kcscf->shm_size = NGX_CONF_UNSET_SIZE;
 	kcscf->timeout = NGX_CONF_UNSET_MSEC;
 	kcscf->fallback = NGX_CONF_UNSET;
 
@@ -378,8 +326,6 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	ngx_url_t u;
 
 	ngx_conf_merge_str_value(conf->address, prev->address, "");
-	ngx_conf_merge_str_value(conf->shm_name, prev->shm_name, "");
-	ngx_conf_merge_size_value(conf->shm_size, prev->shm_size, 8 * ngx_pagesize);
 	ngx_conf_merge_msec_value(conf->timeout, prev->timeout, 250);
 	ngx_conf_merge_value(conf->fallback, prev->fallback, 1);
 
@@ -418,23 +364,6 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	ngx_queue_init(&conf->recv_ops);
 	ngx_queue_init(&conf->send_ops);
 
-	if (conf->shm_name.len && ngx_strcmp(conf->shm_name.data, "off") != 0) {
-		if (conf->shm_size < 8 * ngx_pagesize) {
-			ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
-				"certificate cache size %z bytes is too small", conf->shm_size);
-			return NGX_CONF_ERROR;
-		}
-
-		conf->shm_zone = ngx_shared_memory_add(cf, &conf->shm_name, conf->shm_size,
-			&ngx_http_keyless_module);
-		if (!conf->shm_zone) {
-			ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "ngx_shared_memory_add failed");
-			return NGX_CONF_ERROR;
-		}
-
-		conf->shm_zone->init = ngx_http_keyless_cache_init;
-	}
-
 	SSL_CTX_set_select_certificate_cb(ssl->ssl.ctx, ngx_http_keyless_select_certificate_cb);
 	SSL_CTX_set_cert_cb(ssl->ssl.ctx, ngx_http_keyless_cert_cb, NULL);
 
@@ -461,77 +390,6 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	}
 
 	return NGX_CONF_OK;
-}
-
-static ngx_int_t ngx_http_keyless_cache_init(ngx_shm_zone_t *shm_zone, void *data)
-{
-	ngx_slab_pool_t *shpool;
-	ngx_http_keyless_cache_t *cache;
-
-	if (data) {
-		shm_zone->data = data;
-		return NGX_OK;
-	}
-
-	shpool = (ngx_slab_pool_t *)shm_zone->shm.addr;
-
-	if (shm_zone->shm.exists) {
-		shm_zone->data = shpool->data;
-		return NGX_OK;
-	}
-
-	cache = ngx_slab_alloc(shpool, sizeof(ngx_http_keyless_cache_t));
-	if (!cache) {
-		return NGX_ERROR;
-	}
-
-	shpool->data = cache;
-	shm_zone->data = cache;
-
-	ngx_rbtree_init(&cache->session_rbtree, &cache->sentinel,
-		ngx_http_keyless_rbtree_insert_value);
-	ngx_queue_init(&cache->expire_queue);
-
-	shpool->log_nomem = 0;
-
-	return NGX_OK;
-}
-
-static void ngx_http_keyless_rbtree_insert_value(ngx_rbtree_node_t *temp, ngx_rbtree_node_t *node,
-		ngx_rbtree_node_t *sentinel)
-{
-	ngx_rbtree_node_t **p;
-	ngx_http_keyless_cached_certificate_t *certificate, *certificate_temp;
-
-	while (1) {
-		if (node->key < temp->key) {
-			p = &temp->left;
-		} else if (node->key > temp->key) {
-			p = &temp->right;
-		} else { /* node->key == temp->key */
-			certificate = (ngx_http_keyless_cached_certificate_t *)node;
-			certificate_temp = (ngx_http_keyless_cached_certificate_t *)temp;
-
-			if (ngx_memn2cmp(certificate->id, certificate_temp->id,
-					SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH) < 0) {
-				p = &temp->left;
-			} else {
-				p = &temp->right;
-			}
-		}
-
-		if (*p == sentinel) {
-			break;
-		}
-
-		temp = *p;
-	}
-
-	*p = node;
-	node->parent = temp;
-	node->left = sentinel;
-	node->right = sentinel;
-	ngx_rbt_red(node);
 }
 
 static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello)
@@ -593,27 +451,15 @@ static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client
 
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 {
+	int ret = 0;
 	ngx_connection_t *c;
 	ngx_http_keyless_srv_conf_t *conf;
 	ngx_http_keyless_conn_t *conn;
 	SSL *ssl;
-	const unsigned char *p;
-	CBS payload, child;
-	X509 *leaf = NULL, *x509;
+	CBS payload, child, leaf;
 	EVP_PKEY *public_key = NULL;
-	ngx_slab_pool_t *shpool = NULL /* 'may be used uninitialized' warning */;
-	ngx_http_keyless_cache_t *cache = NULL /* 'may be used uninitialized' warning */;
-	ngx_rbtree_node_t *node, *sentinel;
-	ngx_http_keyless_cached_certificate_t *certificate, *min_cert;
-	u_char id[SHA256_DIGEST_LENGTH];
-	uint32_t hash = 0 /* 'may be used uninitialized' warning */;
-#if NGX_DEBUG
-	u_char buf[SHA_DIGEST_LENGTH*2];
-#endif /* NGX_DEBUG */
-	STACK_OF(X509) *chain = NULL;
-	ngx_int_t rc;
-	time_t min_time;
-	ngx_queue_t *q;
+	SHA256_CTX ctx;
+	uint8_t sid_ctx[SHA256_DIGEST_LENGTH];
 
 	c = ngx_ssl_get_connection(ssl_conn);
 	ssl = c->ssl->connection;
@@ -652,7 +498,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 					SSL_certs_clear(ssl);
 				}
 
-				goto done;
+				ret = 1;
+				goto error;
 			}
 
 			goto error;
@@ -662,7 +509,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			break;
 	}
 
-	if (!conn->op->ski) {
+	if (CBS_len(&payload) == 0 || !conn->op->ski) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 			"get certificate format erorr");
 		goto error;
@@ -670,8 +517,15 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	ngx_memcpy(conn->ski, conn->op->ski, SHA_DIGEST_LENGTH);
 
-	SSL_certs_clear(ssl);
-	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, ngx_http_keyless_sess_id_ctx.data, ngx_http_keyless_sess_id_ctx.len);
+	SHA256_Update(&ctx, CBS_data(&payload), CBS_len(&payload));
+	SHA256_Final(sid_ctx, &ctx);
+
+	if (!SSL_set_session_id_context(ssl, sid_ctx, 16)) {
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_set_session_id_context() failed");
+		goto error;
+	}
 
 	if (conn->op->ocsp_response && !SSL_set_ocsp_response(ssl,
 			conn->op->ocsp_response, conn->op->ocsp_response_length)) {
@@ -680,100 +534,10 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		goto error;
 	}
 
-	if (conf->shm_zone) {
-		SHA256(CBS_data(&payload), CBS_len(&payload), id);
-		hash = ngx_crc32_short(id, SHA256_DIGEST_LENGTH);
+	ngx_memzero(&leaf, sizeof(CBS));
 
-		cache = conf->shm_zone->data;
-		shpool = (ngx_slab_pool_t *)conf->shm_zone->shm.addr;
-
-		ngx_shmtx_lock(&shpool->mutex);
-
-		node = cache->session_rbtree.root;
-		sentinel = cache->session_rbtree.sentinel;
-
-		while (node != sentinel) {
-			if (hash < node->key) {
-				node = node->left;
-				continue;
-			} else if (hash > node->key) {
-				node = node->right;
-				continue;
-			}
-
-			certificate = (ngx_http_keyless_cached_certificate_t *)node;
-
-			rc = ngx_memn2cmp(id, certificate->id,
-				SHA256_DIGEST_LENGTH, SHA256_DIGEST_LENGTH);
-			if (rc < 0) {
-				node = node->left;
-				continue;
-			} else if (rc > 0) {
-				node = node->right;
-				continue;
-			}
-
-			certificate->last_used = ngx_time();
-
-			conn->key.type = certificate->type;
-			conn->key.sig_len = certificate->sig_len;
-
-			chain = sk_X509_dup(certificate->chain);
-			if (!chain) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"sk_X509_dup(...) failed");
-				goto error_shpool_unlock;
-			}
-
-			leaf = sk_X509_shift(chain);
-			if (!leaf) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"sk_X509_shift(...) failed");
-				goto error_shpool_unlock;
-			}
-
-			if (!SSL_use_certificate(ssl, leaf)) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"SSL_use_certificate(...) failed");
-				goto error_shpool_unlock;
-			}
-
-			if (!SSL_set1_chain(ssl, chain)) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"SSL_set1_chain(...) failed");
-				goto error_shpool_unlock;
-			}
-
-			chain = NULL;
-
-			if (!SSL_set_session_id_context(ssl, certificate->sid_ctx,
-					certificate->sid_ctx_len)) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"SSL_set_session_id_context(...) failed");
-				goto error_shpool_unlock;
-			}
-
-			ngx_shmtx_unlock(&shpool->mutex);
-
-			ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
-				"found certificate in cache: \"%*s\"",
-				ngx_hex_dump(buf, conn->ski, SHA_DIGEST_LENGTH) - buf, buf);
-
-			goto done;
-		}
-
-		ngx_shmtx_unlock(&shpool->mutex);
-
-		ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
-			"did not find certificate in cache: \"%*s\"",
-			ngx_hex_dump(buf, conn->ski, SHA_DIGEST_LENGTH) - buf, buf);
-
-		chain = sk_X509_new_null();
-		if (!chain) {
-			ngx_log_error(NGX_LOG_EMERG, c->log, 0, "sk_X509_new_null() failed");
-			goto error;
-		}
-	}
+	SSL_certs_clear(ssl);
+	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
 	while (CBS_len(&payload) != 0) {
 		if (!CBS_get_u16_length_prefixed(&payload, &child)) {
@@ -781,52 +545,25 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			goto error;
 		}
 
-		p = CBS_data(&child);
-
-		/* A u16 length cannot overflow a long. */
-		x509 = d2i_X509(NULL, &p, (long)CBS_len(&child));
-		if (!x509) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "d2i_X509(...) failed");
-			goto error;
-		}
-
-		if (!leaf) {
-			leaf = x509;
-
-			if (!SSL_use_certificate(ssl, leaf)) {
-				X509_free(leaf);
-
+		if (CBS_len(&leaf) == 0) {
+			if (!SSL_use_raw_certificate(ssl, CBS_data(&child), CBS_len(&child))) {
 				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"SSL_use_certificate(...) failed");
+					"SSL_use_raw_certificate(...) failed");
 				goto error;
 			}
-		} else if (!SSL_add1_chain_cert(ssl, x509)) {
-			X509_free(x509);
 
+			leaf = child;
+		} else if (!SSL_add_raw_chain_cert(ssl, CBS_data(&child), CBS_len(&child))) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"SSL_add_extra_chain_cert(...) failed");
-			goto error;
-		}
-
-		if (!chain) {
-			X509_free(x509);
-		} else if (sk_X509_push(chain, x509) == 0) {
-			X509_free(x509);
-
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"sk_X509_push(...) failed");
+				"SSL_add_raw_chain_cert(...) failed");
 			goto error;
 		}
 	}
 
-	if (!leaf) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
-		goto error;
-	}
-
-	public_key = X509_get_pubkey(leaf);
+	public_key = ngx_http_keyless_ssl_cert_parse_pubkey(&leaf);
 	if (!public_key) {
-		ngx_log_error(NGX_LOG_EMERG, c->log, 0, "X509_get_pubkey failed");
+		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
+			"ngx_http_keyless_ssl_cert_parse_pubkey failed");
 		goto error;
 	}
 
@@ -846,98 +583,16 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 	conn->key.sig_len = EVP_PKEY_size(public_key);
 
-	if (ngx_http_keyless_ssl_session_id_context(c, &ngx_http_ssl_sess_id_ctx, leaf) != NGX_OK) {
-		goto error;
-	}
-
-	if (conf->shm_zone) {
-		ngx_shmtx_lock(&shpool->mutex);
-
-		certificate = ngx_slab_alloc_locked(shpool,
-			sizeof(ngx_http_keyless_cached_certificate_t));
-		if (!certificate) {
-			min_time = ngx_time();
-			min_cert = NULL;
-
-			for (q = ngx_queue_head(&cache->expire_queue);
-				q != ngx_queue_sentinel(&cache->expire_queue);
-				q = ngx_queue_next(q)) {
-				certificate = ngx_queue_data(q,
-					ngx_http_keyless_cached_certificate_t, queue);
-
-				if (certificate->last_used < min_time) {
-					min_time = certificate->last_used;
-					min_cert = certificate;
-				}
-			}
-
-			assert(min_cert);
-
-			ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
-				"remove certificate from cache: \"%*s\"",
-				ngx_hex_dump(buf, min_cert->ski, SHA_DIGEST_LENGTH) - buf, buf);
-
-			sk_X509_pop_free(min_cert->chain, X509_free);
-			ngx_queue_remove(&min_cert->queue);
-			ngx_rbtree_delete(&cache->session_rbtree, &min_cert->node);
-			ngx_slab_free_locked(shpool, min_cert);
-
-			certificate = ngx_slab_alloc_locked(shpool,
-				sizeof(ngx_http_keyless_cached_certificate_t));
-			if (!certificate) {
-				ngx_shmtx_unlock(&shpool->mutex);
-				goto done;
-			}
-		}
-
-		certificate->node.key = hash;
-
-		ngx_memcpy(certificate->id, id, SHA256_DIGEST_LENGTH);
-
-		certificate->last_used = ngx_time();
-
-		certificate->chain = chain;
-
-		certificate->type = conn->key.type;
-		certificate->sig_len = conn->key.sig_len;
-
-		ngx_memcpy(certificate->ski, conn->ski, SHA_DIGEST_LENGTH);
-
-		ngx_memcpy(certificate->sid_ctx, ssl->sid_ctx, ssl->sid_ctx_length);
-		certificate->sid_ctx_len = ssl->sid_ctx_length;
-
-		ngx_queue_insert_head(&cache->expire_queue, &certificate->queue);
-		ngx_rbtree_insert(&cache->session_rbtree, &certificate->node);
-
-		ngx_shmtx_unlock(&shpool->mutex);
-
-		ngx_log_debug2(NGX_LOG_DEBUG_EVENT, c->log, 0,
-			"inserted certificate into cache: \"%*s\"",
-			ngx_hex_dump(buf, conn->ski, SHA_DIGEST_LENGTH) - buf, buf);
-	}
-
-done:
-	ngx_http_keyless_cleanup_operation(conn->op);
-	return 1;
-
-error_shpool_unlock:
-	ngx_shmtx_unlock(&shpool->mutex);
+	ret = 1;
 
 error:
-	ERR_clear_error();
-
-	if (chain) {
-		sk_X509_pop_free(chain, X509_free);
-	} else if (leaf) {
-		X509_free(leaf);
+	if (ret == 0) {
+		ERR_clear_error();
 	}
 
-	if (public_key) {
-		EVP_PKEY_free(public_key);
-	}
-
+	EVP_PKEY_free(public_key);
 	ngx_http_keyless_cleanup_operation(conn->op);
-	return 0;
+	return ret;
 }
 
 static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
@@ -1730,85 +1385,29 @@ static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error)
 	}
 }
 
-/* this is ngx_ssl_session_id_context from nginx-1.9.15/src/event/ngx_event_openssl.c */
-static ngx_int_t ngx_http_keyless_ssl_session_id_context(ngx_connection_t *c, ngx_str_t *sess_ctx,
-		X509 *cert)
-{
-	int n, i;
-	X509_NAME *name;
-	EVP_MD_CTX *md;
-	unsigned int len;
-	STACK_OF(X509_NAME) *list;
-	u_char buf[EVP_MAX_MD_SIZE];
+/* this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c */
+static EVP_PKEY *ngx_http_keyless_ssl_cert_parse_pubkey(const CBS *in) {
+  CBS buf = *in, toplevel, tbs_cert;
+  if (!CBS_get_asn1(&buf, &toplevel, CBS_ASN1_SEQUENCE) ||
+      CBS_len(&buf) != 0 ||
+      !CBS_get_asn1(&toplevel, &tbs_cert, CBS_ASN1_SEQUENCE) ||
+      /* version */
+      !CBS_get_optional_asn1(
+          &tbs_cert, NULL, NULL,
+          CBS_ASN1_CONSTRUCTED | CBS_ASN1_CONTEXT_SPECIFIC | 0) ||
+      /* serialNumber */
+      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_INTEGER) ||
+      /* signature algorithm */
+      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE) ||
+      /* issuer */
+      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE) ||
+      /* validity */
+      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE) ||
+      /* subject */
+      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE)) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_CANNOT_PARSE_LEAF_CERT);
+    return NULL;
+  }
 
-	/*
-	 * Session ID context is set based on the string provided,
-	 * the server certificate, and the client CA list.
-	 */
-
-	md = EVP_MD_CTX_create();
-	if (md == NULL) {
-		return NGX_ERROR;
-	}
-
-	if (EVP_DigestInit_ex(md, EVP_sha1(), NULL) == 0) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestInit_ex() failed");
-		goto failed;
-	}
-
-	if (EVP_DigestUpdate(md, sess_ctx->data, sess_ctx->len) == 0) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestUpdate() failed");
-		goto failed;
-	}
-
-	if (X509_digest(cert, EVP_sha1(), buf, &len) == 0) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "X509_digest() failed");
-		goto failed;
-	}
-
-	if (EVP_DigestUpdate(md, buf, len) == 0) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestUpdate() failed");
-		goto failed;
-	}
-
-	list = SSL_get_client_CA_list(c->ssl->connection);
-
-	if (list != NULL) {
-		n = sk_X509_NAME_num(list);
-
-		for (i = 0; i < n; i++) {
-			name = sk_X509_NAME_value(list, i);
-
-			if (X509_NAME_digest(name, EVP_sha1(), buf, &len) == 0) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"X509_NAME_digest() failed");
-				goto failed;
-			}
-
-			if (EVP_DigestUpdate(md, buf, len) == 0) {
-				ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-					"EVP_DigestUpdate() failed");
-				goto failed;
-			}
-		}
-	}
-
-	if (EVP_DigestFinal_ex(md, buf, &len) == 0) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "EVP_DigestUpdate() failed");
-		goto failed;
-	}
-
-	EVP_MD_CTX_destroy(md);
-
-	if (SSL_set_session_id_context(c->ssl->connection, buf, len) == 0) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_set_session_id_context() failed");
-		return NGX_ERROR;
-	}
-
-	return NGX_OK;
-
-failed:
-	EVP_MD_CTX_destroy(md);
-
-	return NGX_ERROR;
+  return EVP_parse_public_key(&tbs_cert);
 }
