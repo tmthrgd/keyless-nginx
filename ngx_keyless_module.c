@@ -18,8 +18,7 @@
 
 #define NGX_HTTP_KEYLESS_OP_BUFFER_SIZE 2*1024
 
-#define NGX_HTTP_KEYLESS_VERSION_MAJOR 2
-#define NGX_HTTP_KEYLESS_VERSION_MINOR 0
+#define NGX_HTTP_KEYLESS_VERSION (0x80 | 1)
 
 #define NGX_HTTP_KEYLESS_HEADER_LENGTH 8
 
@@ -611,7 +610,7 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	CBB payload, child;
 	uint8_t *p;
 	const uint8_t *sni, *ip;
-	size_t len, ip_len;
+	size_t len, len2, ip_len;
 	ngx_int_t rc;
 
 	CBB_zero(&payload);
@@ -652,9 +651,8 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	if (!CBB_init(&payload, NGX_HTTP_KEYLESS_HEADER_LENGTH + NGX_HTTP_KEYLESS_PAD_TO + 4)
 		// header
-		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MAJOR)
-		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION_MINOR)
-		|| !CBB_add_u16(&payload, 0) // length placeholder
+		|| !CBB_add_u8(&payload, NGX_HTTP_KEYLESS_VERSION)
+		|| !CBB_add_u24(&payload, 0) // length placeholder
 		|| !CBB_add_u32(&payload, op->id)
 		// opcode tag
 		|| !CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_OPCODE)
@@ -794,12 +792,16 @@ static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	if (len - NGX_HTTP_KEYLESS_HEADER_LENGTH > UINT16_MAX) {
+	len2 = len - NGX_HTTP_KEYLESS_HEADER_LENGTH;
+	if (len2 > 0xffffff) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "body too large to encode length");
 		goto error;
 	}
 
-	*(uint16_t *)(p + 2) = htons(len - NGX_HTTP_KEYLESS_HEADER_LENGTH); // set length
+	// set length
+	p[1] = len2 >> 16;
+	p[2] = len2 >> 8;
+	p[3] = len2;
 
 	op->send.start = p;
 	op->send.pos = p;
@@ -1061,8 +1063,7 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 	ssize_t size;
 	CBS payload;
 	uint8_t vers;
-	uint16_t length;
-	uint32_t id;
+	uint32_t length, id;
 
 	c = rev->data;
 	conf = c->data;
@@ -1096,9 +1097,8 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 	CBS_init(&payload, recv.pos, recv.last - recv.pos);
 
 	if (!CBS_get_u8(&payload, &vers)
-		|| vers != NGX_HTTP_KEYLESS_VERSION_MAJOR
-		|| !CBS_skip(&payload, 1)
-		|| !CBS_get_u16(&payload, &length)
+		|| vers != NGX_HTTP_KEYLESS_VERSION
+		|| !CBS_get_u24(&payload, &length)
 		|| !CBS_get_u32(&payload, &id)
 		|| length != CBS_len(&payload)) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_* failed or format error");
