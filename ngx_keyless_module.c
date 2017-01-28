@@ -476,8 +476,8 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 
 		if (!conn->op) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE)"
-				" failed");
+				"ngx_http_keyless_start_operation("
+				"NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE) failed");
 			return 0;
 		}
 
@@ -507,8 +507,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	}
 
 	if (CBS_len(&payload) == 0 || !conn->op->ski) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"get certificate format erorr");
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format error");
 		goto error;
 	}
 
@@ -536,14 +535,14 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
 
 	if (!CBS_get_u16_length_prefixed(&payload, &child)) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format error");
 		goto error;
 	}
 
 	public_key = ngx_http_keyless_ssl_cert_parse_pubkey(&child);
 	if (!public_key) {
 		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_ssl_cert_parse_pubkey failed");
+			"ngx_http_keyless_ssl_cert_parse_pubkey(...) failed");
 		goto error;
 	}
 
@@ -561,14 +560,13 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	EVP_PKEY_free(public_key);
 
 	if (!SSL_use_raw_certificate(ssl, CBS_data(&child), CBS_len(&child))) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"SSL_use_raw_certificate(...) failed");
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_use_raw_certificate(...) failed");
 		goto error;
 	}
 
 	while (CBS_len(&payload) != 0) {
 		if (!CBS_get_u16_length_prefixed(&payload, &child)) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format erorr");
+			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format error");
 			goto error;
 		}
 
@@ -1304,8 +1302,8 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t
 	conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW, c, conn,
 		in, in_len);
 	if (!conn->op) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_start_operation(...) failed");
+		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "ngx_http_keyless_start_operation("
+			"NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW) failed");
 		return ssl_private_key_failure;
 	}
 
