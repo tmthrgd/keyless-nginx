@@ -557,7 +557,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 	conn->key.sig_len = EVP_PKEY_size(public_key);
 	EVP_PKEY_free(public_key);
 
-	if (!SSL_use_raw_certificate(ssl, CBS_data(&child), CBS_len(&child))) {
+	if (!SSL_use_certificate_ASN1(ssl, CBS_data(&child), CBS_len(&child))) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_use_raw_certificate(...) failed");
 		goto error;
 	}
@@ -568,7 +568,7 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 			goto error;
 		}
 
-		if (!SSL_add_raw_chain_cert(ssl, CBS_data(&child), CBS_len(&child))) {
+		if (!SSL_add_chain_cert_ASN1(ssl, CBS_data(&child), CBS_len(&child))) {
 			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 				"SSL_add_raw_chain_cert(...) failed");
 			goto error;
