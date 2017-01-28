@@ -407,6 +407,8 @@ static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client
 		return -1;
 	}
 
+	conn->key.type = NID_undef;
+
 	cipher_list = SSL_get_ciphers(client_hello->ssl);
 
 	CBS_init(&cipher_suites, client_hello->cipher_suites, client_hello->cipher_suites_len);
@@ -571,9 +573,6 @@ static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
 		case EVP_PKEY_EC:
 			conn->key.type = EC_GROUP_get_curve_name(EC_KEY_get0_group(
 				EVP_PKEY_get0_EC_KEY(public_key)));
-			break;
-		default:
-			conn->key.type = NID_undef;
 			break;
 	}
 
