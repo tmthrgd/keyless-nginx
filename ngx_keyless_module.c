@@ -358,6 +358,11 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	conf->pc.log = cf->log;
 	conf->pc.log_error = NGX_ERROR_ERR;
 
+	if (RAND_bytes((uint8_t *)&conf->id, sizeof(conf->id)) != 1) {
+		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "RAND_bytes failed");
+		return NGX_CONF_ERROR;
+	}
+
 	conf->pool = cf->cycle->pool;
 
 	ngx_queue_init(&conf->recv_ops);
