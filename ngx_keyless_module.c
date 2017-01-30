@@ -1055,14 +1055,10 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		goto cleanup;
 	}
 
-	if (recv.last - recv.pos < NGX_HTTP_KEYLESS_HEADER_LENGTH) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "truncated packet");
-		goto cleanup;
-	}
-
 	CBS_init(&payload, recv.pos, recv.last - recv.pos);
 
-	if (!CBS_get_u8(&payload, &vers)
+	if (CBS_len(&payload) < NGX_HTTP_KEYLESS_HEADER_LENGTH
+		|| !CBS_get_u8(&payload, &vers)
 		|| vers != NGX_HTTP_KEYLESS_VERSION
 		|| !CBS_get_u24(&payload, &length)
 		|| !CBS_get_u32(&payload, &id)
