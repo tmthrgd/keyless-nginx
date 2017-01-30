@@ -1188,7 +1188,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 	ngx_http_keyless_operation_t opcode;
 	ngx_connection_t *c;
 	ngx_http_keyless_conn_t *conn;
-	uint8_t hash[EVP_MAX_MD_SIZE];
+	uint8_t hash[SHA512_DIGEST_LENGTH]; // SHA-512 is the longest so far.
 	size_t hash_len;
 
 	switch (signature_algorithm) {
