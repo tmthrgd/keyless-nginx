@@ -40,9 +40,9 @@ enum {
 
 	// The range [0x0100, 0xc000) is for tags from our protocol version.
 	// The stapled OCSP response
-	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE = 0x0101,
+	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE          = 0x0101,
 	// The SCT list to send to the client
-	NGX_HTTP_KEYLESS_TAG_SCT_LIST      = 0x0102,
+	NGX_HTTP_KEYLESS_TAG_SIGNED_CERT_TIMESTAMPS = 0x0102,
 
 	// The range [0xc000, 0xffff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
@@ -927,7 +927,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				op->ocsp_response = CBS_data(&child);
 				op->ocsp_response_length = CBS_len(&child);
 				break;
-			case NGX_HTTP_KEYLESS_TAG_SCT_LIST:
+			case NGX_HTTP_KEYLESS_TAG_SIGNED_CERT_TIMESTAMPS:
 				if (op->sct_list) {
 					ngx_log_error(NGX_LOG_ERR, op->log, 0, "keyless receive error: %s",
 						ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_FORMAT));
