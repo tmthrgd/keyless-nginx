@@ -1,28 +1,7 @@
-From ca2fbeb30036b55a19051a731a79a0d808392be9 Mon Sep 17 00:00:00 2001
-From: Tom Thorogood <me+google@tomthorogood.co.uk>
-Date: Sun, 29 Jan 2017 10:10:34 +1030
-Subject: [PATCH] Add functions to append DER encoded certificates to chain.
-
-This change adds two functions - |SSL_CTX_add_chain_cert_ASN1|
-and |SSL_add_chain_cert_ASN1| - that take a DER encoded binary
-blob and append it to the certificate chain.
-
-They parallel |SSL_use_certificate_ASN1| in both naming and that
-they allow the certificate to be passed as a DER encoded blob.
-This avoids the otherwise required overhead of parsing the
-certificate with d2i_X509.
-
-This is possible since Ifa05d88c49a987fd561b349705c9c48f106ec868,
-and is styled like I1c014d20f12ad83427575843ca0b3bb22de1a694.
-
-Change-Id: I67eb6499430b640d0f82f0310766903a510ad935
----
-
-diff --git a/include/openssl/ssl.h b/include/openssl/ssl.h
-index 6c9822f..f17a1c7 100644
---- a/include/openssl/ssl.h
-+++ b/include/openssl/ssl.h
-@@ -972,6 +972,12 @@
+diff -rupN a/include/openssl/ssl.h b/include/openssl/ssl.h
+--- a/include/openssl/ssl.h	2017-02-15 09:25:59.987475000 +1030
++++ b/include/openssl/ssl.h	2017-02-15 09:55:29.163424944 +1030
+@@ -980,6 +980,12 @@ OPENSSL_EXPORT int SSL_CTX_use_certifica
  OPENSSL_EXPORT int SSL_use_certificate_ASN1(SSL *ssl, const uint8_t *der,
                                              size_t der_len);
  
@@ -35,42 +14,26 @@ index 6c9822f..f17a1c7 100644
  OPENSSL_EXPORT int SSL_CTX_use_PrivateKey_ASN1(int pk, SSL_CTX *ctx,
                                                 const uint8_t *der,
                                                 size_t der_len);
-diff --git a/ssl/ssl_cert.c b/ssl/ssl_cert.c
-index ed6ba0d..0b6b021 100644
---- a/ssl/ssl_cert.c
-+++ b/ssl/ssl_cert.c
-@@ -346,35 +346,37 @@
+diff -rupN a/ssl/ssl_x509.c b/ssl/ssl_x509.c
+--- a/ssl/ssl_x509.c	2017-02-15 09:25:59.995475000 +1030
++++ b/ssl/ssl_x509.c	2017-02-15 10:00:49.243415733 +1030
+@@ -577,14 +577,9 @@ static int ssl_cert_set1_chain(CERT *cer
    return 1;
  }
  
 -static int ssl_cert_append_cert(CERT *cert, X509 *x509) {
++static int ssl_cert_append_cert(CERT *cert, CRYPTO_BUFFER *buffer) {
+   assert(cert->x509_method);
+ 
 -  CRYPTO_BUFFER *buffer = x509_to_buffer(x509);
 -  if (buffer == NULL) {
 -    return 0;
 -  }
 -
-+static int ssl_cert_append_cert(CERT *cert, CRYPTO_BUFFER *buffer) {
    if (cert->chain != NULL) {
      if (!sk_CRYPTO_BUFFER_push(cert->chain, buffer)) {
--      CRYPTO_BUFFER_free(buffer);
-       return 0;
-     }
- 
-+    CRYPTO_BUFFER_up_ref(buffer);
-     return 1;
-   }
- 
-   cert->chain = new_leafless_chain();
-   if (cert->chain == NULL ||
-       !sk_CRYPTO_BUFFER_push(cert->chain, buffer)) {
--    CRYPTO_BUFFER_free(buffer);
-     sk_CRYPTO_BUFFER_free(cert->chain);
-     cert->chain = NULL;
-     return 0;
-   }
- 
-+  CRYPTO_BUFFER_up_ref(buffer);
-   return 1;
+       CRYPTO_BUFFER_free(buffer);
+@@ -607,7 +602,14 @@ static int ssl_cert_append_cert(CERT *ce
  }
  
  static int ssl_cert_add0_chain_cert(CERT *cert, X509 *x509) {
@@ -86,7 +49,7 @@ index ed6ba0d..0b6b021 100644
      return 0;
    }
  
-@@ -384,7 +386,31 @@
+@@ -618,7 +620,31 @@ static int ssl_cert_add0_chain_cert(CERT
  }
  
  static int ssl_cert_add1_chain_cert(CERT *cert, X509 *x509) {
@@ -102,7 +65,7 @@ index ed6ba0d..0b6b021 100644
 +    return 0;
 +  }
 +
-+  ssl_cert_flush_cached_x509_chain(cert);
++  ssl_crypto_x509_flush_cached_chain(cert);
 +  return 1;
 +}
 +
@@ -119,8 +82,8 @@ index ed6ba0d..0b6b021 100644
      return 0;
    }
  
-@@ -1039,6 +1065,15 @@
-   ssl_cert_set_cert_cb(ssl->cert, cb, arg);
+@@ -662,6 +688,15 @@ int SSL_add1_chain_cert(SSL *ssl, X509 *
+   return ssl_cert_add1_chain_cert(ssl->cert, x509);
  }
  
 +int SSL_CTX_add_chain_cert_ASN1(SSL_CTX *ctx, const uint8_t *der,
@@ -132,6 +95,6 @@ index ed6ba0d..0b6b021 100644
 +  return ssl_cert_add_chain_cert_asn1(ssl->cert, der, der_len);
 +}
 +
- /* ssl_cert_cache_leaf_cert sets |cert->x509_leaf|, if currently NULL, from the
-  * first element of |cert->chain|. */
- int ssl_cert_cache_leaf_cert(CERT *cert) {
+ int SSL_CTX_clear_chain_certs(SSL_CTX *ctx) {
+   return SSL_CTX_set0_chain(ctx, NULL);
+ }
