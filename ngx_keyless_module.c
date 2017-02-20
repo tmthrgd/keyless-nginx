@@ -1108,6 +1108,7 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id: %ud", id);
 
 cleanup:
+	OPENSSL_cleanse(recv.start, recv.last - recv.start);
 	ngx_pfree(c->pool, recv.start);
 }
 
