@@ -43,6 +43,10 @@ enum {
 	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE          = 0x0101,
 	// The SCT list to send to the client
 	NGX_HTTP_KEYLESS_TAG_SIGNED_CERT_TIMESTAMPS = 0x0102,
+	// The nonce used for NGX_HTTP_KEYLESS_OP_SEAL and NGX_HTTP_KEYLESS_OP_UNSEAL
+	NGX_HTTP_KEYLESS_TAG_NONCE                  = 0x0103,
+	// The additional data for NGX_HTTP_KEYLESS_OP_SEAL and NGX_HTTP_KEYLESS_OP_UNSEAL
+	NGX_HTTP_KEYLESS_TAG_ADDITIONAL_DATA        = 0x0104,
 
 	// The range [0xc000, 0xffff) is reserved for private tags.
 	// One iff ECDSA ciphers are supported
@@ -81,6 +85,10 @@ typedef enum {
 
 	// Request a certificate and chain
 	NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE = 0x0020,
+
+	// Encrypt a blob of data
+	NGX_HTTP_KEYLESS_OP_SEAL   = 0x0021,
+	NGX_HTTP_KEYLESS_OP_UNSEAL = 0x0022,
 
 	// [Deprecated]: A test message
 	NGX_HTTP_KEYLESS_OP_PING = 0x00F1,
@@ -121,6 +129,8 @@ typedef enum {
 	NGX_HTTP_KEYLESS_ERROR_INTERNAL          = 0x0008,
 	// Certificate not found
 	NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND    = 0x0009,
+	// The sealing key has expired
+	NGX_HTTP_KEYLESS_ERROR_EXPIRED           = 0x0010,
 
 	// The range [0x0100, 0xc000) is for errors from our protocol version.
 	// The client was not authorised to perform that request.
@@ -1559,6 +1569,8 @@ static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error)
 			return "certificate not found";
 		case NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED:
 			return "client not authorised";
+		case NGX_HTTP_KEYLESS_ERROR_EXPIRED:
+			return "sealing key expired";
 		default:
 			return "unknown error";
 	}
