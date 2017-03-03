@@ -188,6 +188,7 @@ typedef struct {
 	} get_cert;
 } ngx_http_keyless_conn_t;
 
+extern int ngx_http_keyless_ctx_conf_index;
 extern int ngx_http_keyless_ssl_conn_index;
 
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,

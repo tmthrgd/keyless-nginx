@@ -52,6 +52,17 @@ use error::Error;
 mod opcode;
 use opcode::Op;
 
+const SESS_ID_CTX: &'static str = "keyless-HTTP";
+
+const KEY_METHOD: ssl::SSL_PRIVATE_KEY_METHOD = ssl::SSL_PRIVATE_KEY_METHOD {
+	type_: Some(key_type),
+	max_signature_len: Some(key_max_signature_len),
+	sign: Some(key_sign),
+	sign_digest: None,
+	decrypt: Some(key_decrypt),
+	complete: Some(key_complete),
+};
+
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_create_srv_conf(cf: *mut nginx::ngx_conf_t)
                                                    -> *mut std::os::raw::c_void {
@@ -154,7 +165,176 @@ pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ss
 }
 
 #[no_mangle]
-pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
+#[allow(unused_variables)]
+pub extern "C" fn ngx_http_keyless_cert_cb(ssl_conn: *mut ssl::SSL,
+                                           data: *mut std::os::raw::c_void)
+                                           -> std::os::raw::c_int {
+	let c = nginx::ngx_ssl_get_connection(ssl_conn);
+	let ssl = unsafe { (*(*c).ssl).connection };
+
+	let conn = keyless::get_conn(ssl);
+	if conn.is_null() {
+		return 1;
+	};
+
+	if (unsafe { (*conn).op }).is_null() {
+		let op = unsafe {
+			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
+			                                          c,
+			                                          conn,
+			                                          ptr::null(),
+			                                          0)
+		};
+
+		unsafe {
+			(*conn).get_cert.sig_algs = ptr::null_mut();
+			(*conn).get_cert.ecdsa_cipher = 0;
+
+			(*conn).op = op;
+		};
+
+		return if op.is_null() { 0 } else { -1 };
+	};
+
+	let conf = unsafe {
+		ssl::SSL_CTX_get_ex_data(ssl::SSL_get_SSL_CTX(ssl),
+		                         keyless::ngx_http_keyless_ctx_conf_index)
+	} as *mut keyless::ngx_http_keyless_srv_conf_t;
+	if conf.is_null() {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	};
+
+	let mut payload: ssl::CBS = [0; 2];
+
+	match unsafe { keyless::ngx_http_keyless_operation_complete((*conn).op, &mut payload) } {
+		ssl::ssl_private_key_failure => {
+			let mut rc = 0;
+
+			if unsafe { (*(*conn).op).error } == Error::CertNotFound {
+				if unsafe { (*conf).fallback } != 1 {
+					unsafe { ssl::SSL_certs_clear(ssl) };
+				}
+
+				rc = 1;
+			};
+
+			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+			return rc;
+		}
+		ssl::ssl_private_key_retry => return -1,
+		ssl::ssl_private_key_success => (),
+	}
+
+	if unsafe { ssl::CBS_len(&payload) } == 0 || unsafe { (*(*conn).op).ski }.is_null() {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	}
+
+	unsafe {
+		ptr::copy_nonoverlapping((*(*conn).op).ski,
+		                         (*conn).ski.as_mut_ptr(),
+		                         ssl::SHA_DIGEST_LENGTH as usize)
+	};
+
+	let mut sha_ctx: ssl::SHA256_CTX = [0; 28];
+	let mut sid_ctx: [u8; ssl::SHA256_DIGEST_LENGTH as usize] =
+		[0; ssl::SHA256_DIGEST_LENGTH as usize];
+
+	unsafe {
+		ssl::SHA256_Init(&mut sha_ctx);
+		ssl::SHA256_Update(&mut sha_ctx,
+		                   SESS_ID_CTX.as_ptr() as *const std::os::raw::c_void,
+		                   SESS_ID_CTX.len());
+		ssl::SHA256_Update(&mut sha_ctx,
+		                   ssl::CBS_data(&payload) as *const std::os::raw::c_void,
+		                   ssl::CBS_len(&payload));
+		ssl::SHA256_Final(sid_ctx.as_mut_ptr(), &mut sha_ctx);
+	};
+
+	if unsafe { ssl::SSL_set_session_id_context(ssl, sid_ctx.as_ptr(), 16) } != 1 {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	}
+
+	if !unsafe { (*(*conn).op).ocsp_response }.is_null() &&
+	   unsafe {
+		ssl::SSL_set_ocsp_response(ssl,
+		                           (*(*conn).op).ocsp_response,
+		                           (*(*conn).op).ocsp_response_length)
+	} != 1 {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	}
+
+	if !unsafe { (*(*conn).op).sct_list }.is_null() &&
+	   unsafe {
+		ssl::SSL_set_signed_cert_timestamp_list(ssl,
+		                                        (*(*conn).op).sct_list,
+		                                        (*(*conn).op).sct_list_length)
+	} != 1 {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	}
+
+	unsafe {
+		ssl::SSL_certs_clear(ssl);
+		ssl::SSL_set_private_key_method(ssl, &KEY_METHOD);
+	};
+
+	let mut child: ssl::CBS = [0; 2];
+
+	if unsafe { ssl::CBS_get_u16_length_prefixed(&mut payload, &mut child) } != 1 {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	}
+
+	let public_key = ssl_cert_parse_pubkey(&child);
+	if public_key.is_null() {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	}
+
+	match unsafe { ssl::EVP_PKEY_id(public_key) as u32 } {
+		ssl::EVP_PKEY_RSA => unsafe { (*conn).key.type_ = ssl::NID_rsaEncryption as i32 },
+		ssl::EVP_PKEY_EC => unsafe { (*conn).key.type_ = ssl::EC_GROUP_get_curve_name(
+			ssl::EC_KEY_get0_group(ssl::EVP_PKEY_get0_EC_KEY(public_key))) },
+		_ => (),
+	}
+
+	unsafe {
+		(*conn).key.sig_len = ssl::EVP_PKEY_size(public_key) as usize;
+		ssl::EVP_PKEY_free(public_key);
+	};
+
+	if unsafe {
+		ssl::SSL_use_certificate_ASN1(ssl, ssl::CBS_data(&child), ssl::CBS_len(&child))
+	} != 1 {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	}
+
+	while unsafe { ssl::CBS_len(&payload) } != 0 {
+		if unsafe { ssl::CBS_get_u16_length_prefixed(&mut payload, &mut child) } != 1 {
+			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+			return 0;
+		}
+
+		if unsafe {
+			ssl::SSL_add_chain_cert_ASN1(ssl,
+			                             ssl::CBS_data(&child),
+			                             ssl::CBS_len(&child))
+		} != 1 {
+			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+			return 0;
+		}
+	}
+
+	unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+	1
+}
+
+pub extern "C" fn key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
@@ -165,15 +345,14 @@ pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> std::os:
 	}
 }
 
-#[no_mangle]
-pub extern "C" fn ngx_http_keyless_key_max_signature_len(ssl_conn: *mut ssl::SSL) -> usize {
+pub extern "C" fn key_max_signature_len(ssl_conn: *mut ssl::SSL) -> u64 {
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
 	if conn.is_null() {
 		0
 	} else {
-		unsafe { (*conn).key.sig_len }
+		unsafe { (*conn).key.sig_len as u64 }
 	}
 }
 
@@ -199,16 +378,15 @@ fn key_start_operation(op: Op,
 	}
 }
 
-#[no_mangle]
 #[allow(unused_variables)]
-pub extern "C" fn ngx_http_keyless_key_sign(ssl_conn: *mut ssl::SSL,
-                                            out: *mut u8,
-                                            out_len: *mut usize,
-                                            max_out: usize,
-                                            signature_algorithm: u16,
-                                            in_ptr: *const u8,
-                                            in_len: usize)
-                                            -> ssl::ssl_private_key_result_t {
+pub extern "C" fn key_sign(ssl_conn: *mut ssl::SSL,
+                           out: *mut u8,
+                           out_len: *mut usize,
+                           max_out: usize,
+                           signature_algorithm: u16,
+                           in_ptr: *const u8,
+                           in_len: usize)
+                           -> ssl::ssl_private_key_result_t {
 	let opcode = match signature_algorithm as u32 {
 		ssl::SSL_SIGN_RSA_PKCS1_MD5_SHA1 => Op::RSASignMD5SHA1,
 		ssl::SSL_SIGN_RSA_PKCS1_SHA1 => Op::RSASignSHA1,
@@ -270,24 +448,22 @@ pub extern "C" fn ngx_http_keyless_key_sign(ssl_conn: *mut ssl::SSL,
 	key_start_operation(opcode, ssl_conn, hash.as_ptr(), hash_len)
 }
 
-#[no_mangle]
 #[allow(unused_variables)]
-pub extern "C" fn ngx_http_keyless_key_decrypt(ssl_conn: *mut ssl::SSL,
-                                               out: *mut u8,
-                                               out_len: *mut usize,
-                                               max_out: usize,
-                                               in_ptr: *const u8,
-                                               in_len: usize)
-                                               -> ssl::ssl_private_key_result_t {
+pub extern "C" fn key_decrypt(ssl_conn: *mut ssl::SSL,
+                              out: *mut u8,
+                              out_len: *mut usize,
+                              max_out: usize,
+                              in_ptr: *const u8,
+                              in_len: usize)
+                              -> ssl::ssl_private_key_result_t {
 	key_start_operation(Op::RSADecryptRaw, ssl_conn, in_ptr, in_len)
 }
 
-#[no_mangle]
-pub extern "C" fn ngx_http_keyless_key_complete(ssl_conn: *mut ssl::SSL,
-                                                out: *mut u8,
-                                                out_len: *mut usize,
-                                                max_out: usize)
-                                                -> ssl::ssl_private_key_result_t {
+pub extern "C" fn key_complete(ssl_conn: *mut ssl::SSL,
+                               out: *mut u8,
+                               out_len: *mut usize,
+                               max_out: usize)
+                               -> ssl::ssl_private_key_result_t {
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
@@ -339,9 +515,7 @@ pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 }
 
 // this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c
-#[no_mangle]
-pub extern "C" fn ngx_http_keyless_ssl_cert_parse_pubkey(in_cbs: *const ssl::CBS)
-                                                         -> *mut ssl::EVP_PKEY {
+fn ssl_cert_parse_pubkey(in_cbs: *const ssl::CBS) -> *mut ssl::EVP_PKEY {
 	let mut buf = unsafe { *in_cbs };
 	let mut toplevel: ssl::CBS = [0; 2];
 	let mut tbs_cert: ssl::CBS = [0; 2];

@@ -23,7 +23,7 @@ extern void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
 
 extern int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
-static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
+extern int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
 
 static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 static void ngx_http_keyless_socket_read_udp_handler(ngx_event_t *rev);
@@ -44,20 +44,7 @@ extern enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 
 extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
 
-extern EVP_PKEY *ngx_http_keyless_ssl_cert_parse_pubkey(const CBS *in);
-
-static ngx_str_t ngx_http_keyless_sess_id_ctx = ngx_string("keyless-HTTP");
-
-const SSL_PRIVATE_KEY_METHOD ngx_http_keyless_key_method = {
-	ngx_http_keyless_key_type,
-	ngx_http_keyless_key_max_signature_len,
-	ngx_http_keyless_key_sign,
-	NULL,
-	ngx_http_keyless_key_decrypt,
-	ngx_http_keyless_key_complete,
-};
-
-static int g_ssl_ctx_exdata_conf_index = -1;
+int ngx_http_keyless_ctx_conf_index = -1;
 int ngx_http_keyless_ssl_conn_index = -1;
 
 static ngx_command_t ngx_http_keyless_module_commands[] = {
@@ -177,9 +164,9 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	SSL_CTX_set_select_certificate_cb(ssl->ssl.ctx, ngx_http_keyless_select_certificate_cb);
 	SSL_CTX_set_cert_cb(ssl->ssl.ctx, ngx_http_keyless_cert_cb, NULL);
 
-	if (g_ssl_ctx_exdata_conf_index == -1) {
-		g_ssl_ctx_exdata_conf_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
-		if (g_ssl_ctx_exdata_conf_index == -1) {
+	if (ngx_http_keyless_ctx_conf_index == -1) {
+		ngx_http_keyless_ctx_conf_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
+		if (ngx_http_keyless_ctx_conf_index == -1) {
 			ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
 				"SSL_CTX_get_ex_new_index(...) failed");
 			return NGX_CONF_ERROR;
@@ -195,160 +182,12 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 		}
 	}
 
-	if (!SSL_CTX_set_ex_data(ssl->ssl.ctx, g_ssl_ctx_exdata_conf_index, conf)) {
+	if (!SSL_CTX_set_ex_data(ssl->ssl.ctx, ngx_http_keyless_ctx_conf_index, conf)) {
 		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "SSL_CTX_set_ex_data(...) failed");
 		return NGX_CONF_ERROR;
 	}
 
 	return NGX_CONF_OK;
-}
-
-static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
-{
-	int ret = 0;
-	ngx_connection_t *c;
-	ngx_http_keyless_srv_conf_t *conf;
-	ngx_http_keyless_conn_t *conn;
-	SSL *ssl;
-	CBS payload, child;
-	EVP_PKEY *public_key = NULL;
-	SHA256_CTX sha_ctx;
-	uint8_t sid_ctx[SHA256_DIGEST_LENGTH];
-
-	c = ngx_ssl_get_connection(ssl_conn);
-	ssl = c->ssl->connection;
-
-	conn = SSL_get_ex_data(ssl, ngx_http_keyless_ssl_conn_index);
-	if (!conn) {
-		return 1;
-	}
-
-	if (!conn->op) {
-		conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE,
-			c, conn, NULL, 0);
-
-		conn->get_cert.sig_algs = NULL;
-		conn->get_cert.ecdsa_cipher = 0;
-
-		if (!conn->op) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"ngx_http_keyless_start_operation("
-				"NGX_HTTP_KEYLESS_OP_GET_CERTIFICATE) failed");
-			return 0;
-		}
-
-		return -1;
-	}
-
-	conf = SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), g_ssl_ctx_exdata_conf_index);
-	if (!conf) {
-		goto error;
-	}
-
-	switch (ngx_http_keyless_operation_complete(conn->op, &payload)) {
-		case ssl_private_key_failure:
-			if (conn->op->error == NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND) {
-				if (!conf->fallback) {
-					SSL_certs_clear(ssl);
-				}
-
-				ret = 1;
-			}
-
-			goto error;
-		case ssl_private_key_retry:
-			return -1;
-		case ssl_private_key_success:
-			break;
-	}
-
-	if (CBS_len(&payload) == 0 || !conn->op->ski) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format error");
-		goto error;
-	}
-
-	ngx_memcpy(conn->ski, conn->op->ski, SHA_DIGEST_LENGTH);
-
-	SHA256_Init(&sha_ctx);
-	SHA256_Update(&sha_ctx, ngx_http_keyless_sess_id_ctx.data,
-		ngx_http_keyless_sess_id_ctx.len);
-	SHA256_Update(&sha_ctx, CBS_data(&payload), CBS_len(&payload));
-	SHA256_Final(sid_ctx, &sha_ctx);
-
-	if (!SSL_set_session_id_context(ssl, sid_ctx, 16)) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_set_session_id_context(...) failed");
-		goto error;
-	}
-
-	if (conn->op->ocsp_response && !SSL_set_ocsp_response(ssl,
-			conn->op->ocsp_response, conn->op->ocsp_response_length)) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"SSL_set_ocsp_response(...) failed");
-		goto error;
-	}
-
-	if (conn->op->sct_list && !SSL_set_signed_cert_timestamp_list(ssl, conn->op->sct_list,
-				conn->op->sct_list_length)) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"SSL_set_signed_cert_timestamp_list(...) failed");
-		goto error;
-	}
-
-	SSL_certs_clear(ssl);
-	SSL_set_private_key_method(ssl, &ngx_http_keyless_key_method);
-
-	if (!CBS_get_u16_length_prefixed(&payload, &child)) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format error");
-		goto error;
-	}
-
-	public_key = ngx_http_keyless_ssl_cert_parse_pubkey(&child);
-	if (!public_key) {
-		ngx_log_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_ssl_cert_parse_pubkey(...) failed");
-		goto error;
-	}
-
-	switch (EVP_PKEY_id(public_key)) {
-		case EVP_PKEY_RSA:
-			conn->key.type = NID_rsaEncryption;
-			break;
-		case EVP_PKEY_EC:
-			conn->key.type = EC_GROUP_get_curve_name(EC_KEY_get0_group(
-				EVP_PKEY_get0_EC_KEY(public_key)));
-			break;
-	}
-
-	conn->key.sig_len = EVP_PKEY_size(public_key);
-	EVP_PKEY_free(public_key);
-
-	if (!SSL_use_certificate_ASN1(ssl, CBS_data(&child), CBS_len(&child))) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "SSL_use_certificate_ASN1(...) failed");
-		goto error;
-	}
-
-	while (CBS_len(&payload) != 0) {
-		if (!CBS_get_u16_length_prefixed(&payload, &child)) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "get certificate format error");
-			goto error;
-		}
-
-		if (!SSL_add_chain_cert_ASN1(ssl, CBS_data(&child), CBS_len(&child))) {
-			ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-				"SSL_add_chain_cert_ASN1(...) failed");
-			goto error;
-		}
-	}
-
-	ret = 1;
-
-error:
-	if (ret == 0) {
-		ERR_clear_error();
-	}
-
-	ngx_http_keyless_cleanup_operation(conn->op);
-	return ret;
 }
 
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
@@ -372,7 +211,7 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 
 	ssl = c->ssl->connection;
 
-	conf = SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), g_ssl_ctx_exdata_conf_index);
+	conf = SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), ngx_http_keyless_ctx_conf_index);
 	if (!conf) {
 		goto error;
 	}
