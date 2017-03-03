@@ -212,11 +212,11 @@ pub extern "C" fn ngx_http_keyless_key_sign(ssl_conn: *mut ssl::SSL,
 
 	let hash_len = match signature_algorithm as u32 {
 		ssl::SSL_SIGN_RSA_PKCS1_MD5_SHA1 => {
-			unsafe { ssl::MD5(in_ptr, in_len, hash.as_mut_ptr()) };
 			unsafe {
+				ssl::MD5(in_ptr, in_len, hash.as_mut_ptr());
 				ssl::SHA1(in_ptr,
 				          in_len,
-				          hash[ssl::MD5_DIGEST_LENGTH as usize..].as_mut_ptr())
+				          hash[ssl::MD5_DIGEST_LENGTH as usize..].as_mut_ptr());
 			};
 			ssl::MD5_DIGEST_LENGTH + ssl::SHA_DIGEST_LENGTH
 		}
