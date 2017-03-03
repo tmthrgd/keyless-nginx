@@ -53,6 +53,29 @@ mod opcode;
 use opcode::Op;
 
 #[no_mangle]
+pub extern "C" fn ngx_http_keyless_create_srv_conf(cf: *mut nginx::ngx_conf_t)
+                                                   -> *mut std::os::raw::c_void {
+	let kcscf = unsafe {
+		nginx::ngx_pcalloc((*cf).pool,
+		                   mem::size_of::<keyless::ngx_http_keyless_srv_conf_t>())
+	} as *mut keyless::ngx_http_keyless_srv_conf_t;
+	if kcscf.is_null() {
+		return ptr::null_mut();
+	};
+
+	// set by ngx_pcalloc():
+	//
+	//     kcscf->address = { 0, NULL };
+
+	unsafe {
+		(*kcscf).timeout = nginx::NGX_CONF_UNSET_MSEC as usize;
+		(*kcscf).fallback = nginx::NGX_CONF_UNSET as isize;
+	};
+
+	kcscf as *mut std::os::raw::c_void
+}
+
+#[no_mangle]
 pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HELLO)
                                                          -> std::os::raw::c_int {
 	let c = nginx::ngx_ssl_get_connection(unsafe { (*client_hello).ssl });

@@ -85,9 +85,9 @@ fn main() {
 		// ngx_connection_t
 		.hide_type("^SSL.*")
 		.opaque_type("ngx_listening_t")
-		.opaque_type("ngx_log_t")
-		.opaque_type("ngx_pool_t")
 		.opaque_type("ngx_buf_t")
+		.opaque_type("ngx_thread_task_t")
+		.opaque_type("ngx_file_t")
 		.whitelisted_type("ngx_connection_t")
 		// ngx_keyless_module.h
 		.opaque_type("ngx_event_t")
@@ -101,6 +101,11 @@ fn main() {
 		.whitelisted_type("ngx_pool_cleanup_t")
 		.whitelisted_function("ngx_pool_cleanup_add")
 		.whitelisted_function("ngx_pcalloc")
+		.opaque_type("ngx_cycle_t")
+		.opaque_type("ngx_pool_t")
+		.opaque_type("ngx_log_t")
+		.whitelisted_type("ngx_conf_t")
+		.whitelisted_var("NGX_CONF_UNSET")
 		// rust_nginx.h
 		.header("rust_nginx.h")
 		.generate()

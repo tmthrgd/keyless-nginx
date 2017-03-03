@@ -19,7 +19,7 @@
 
 #define NGX_HTTP_KEYLESS_PAD_TO 1024
 
-static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
+extern void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
 
 extern int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
@@ -113,27 +113,6 @@ ngx_module_t ngx_http_keyless_module = {
 	NULL,                             /* exit master */
 	NGX_MODULE_V1_PADDING
 };
-
-static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf)
-{
-	ngx_http_keyless_srv_conf_t *kcscf;
-
-	kcscf = ngx_pcalloc(cf->pool, sizeof(ngx_http_keyless_srv_conf_t));
-	if (!kcscf) {
-		return NULL;
-	}
-
-	/*
-	 * set by ngx_pcalloc():
-	 *
-	 *     kcscf->address = { 0, NULL };
-	 */
-
-	kcscf->timeout = NGX_CONF_UNSET_MSEC;
-	kcscf->fallback = NGX_CONF_UNSET;
-
-	return kcscf;
-}
 
 static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 {
