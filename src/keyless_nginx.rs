@@ -18,8 +18,6 @@ mod keyless {
 
 	include!(concat!(env!("OUT_DIR"), "/keyless.rs"));
 
-	pub use self::ngx_http_keyless_operation_t::*;
-
 	pub fn get_conn(ssl: *const SSL) -> *mut ngx_http_keyless_conn_t {
 		unsafe {
 			SSL_get_ex_data(ssl, ngx_http_keyless_ssl_conn_index) as
