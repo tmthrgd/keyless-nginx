@@ -2,6 +2,7 @@
 name    = "keyless_nginx"
 version = "0.0.1"
 authors = ["Tom Thorogood <me@tomthorogood.co.uk>"]
+publish = false
 
 [lib]
 name       = "keyless_nginx"
