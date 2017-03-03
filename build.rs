@@ -20,7 +20,7 @@ fn main() {
 		.whitelisted_var("^CBS_.*")
 		.opaque_type("EVP_PKEY")
 		.whitelisted_function("EVP_parse_public_key")
-		.header("openssl.h")
+		.header("rust_openssl.h")
 		.generate()
 		.expect("build failed")
 		.write_to_file(out_path.join("openssl.rs"));
