@@ -51,8 +51,6 @@ fn main() {
 		.whitelisted_function("EVP_parse_public_key")
 		// ssl_private_key_result_t
 		.whitelisted_type("ssl_private_key_result_t")
-		// SSL_get_ex_data
-		.whitelisted_function("SSL_get_ex_data")
 		// rust_nginx.h
 		//  SSL
 		.whitelisted_type("SSL")
@@ -60,6 +58,16 @@ fn main() {
 		.opaque_type("SSL_CTX")
 		.whitelisted_type("SSL_CTX")
 		// keyless_nginx.rs
+		.whitelisted_function("SSL_[gs]et_ex_data")
+		.whitelisted_type("SSL_CLIENT_HELLO")
+		.opaque_type("SSL_CIPHER")
+		.hide_type("stack_st_SSL_CIPHER")
+		.whitelisted_function("SSL_get_ciphers")
+		.whitelisted_function("SSL_get_cipher_by_value")
+		.whitelisted_function("SSL_CIPHER_is_ECDSA")
+		.whitelisted_function("sk_find")
+		.whitelisted_function("SSL_early_callback_ctx_extension_get")
+		.whitelisted_var("TLSEXT_TYPE_signature_algorithms")
 		.whitelisted_var("NID_undef")
 		.whitelisted_var("^SSL_SIGN_.*")
 		.whitelisted_function("MD5")
@@ -84,13 +92,15 @@ fn main() {
 		// ngx_keyless_module.h
 		.opaque_type("ngx_event_t")
 		.whitelisted_type("ngx_event_t")
-		.opaque_type("ngx_pool_cleanup_t")
-		.whitelisted_type("ngx_pool_cleanup_t")
 		.opaque_type("ngx_queue_t")
 		.whitelisted_type("ngx_queue_t")
 		.opaque_type("ngx_peer_connection_t")
 		.whitelisted_type("ngx_peer_connection_t")
 		.whitelisted_type("ngx_flag_t")
+		// keyless_nginx.rs
+		.whitelisted_type("ngx_pool_cleanup_t")
+		.whitelisted_function("ngx_pool_cleanup_add")
+		.whitelisted_function("ngx_pcalloc")
 		// rust_nginx.h
 		.header("rust_nginx.h")
 		.generate()

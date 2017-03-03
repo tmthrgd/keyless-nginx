@@ -29,6 +29,9 @@ mod keyless {
 }
 
 use std::ptr;
+use std::mem;
+
+extern crate libc;
 
 #[macro_use]
 extern crate enum_primitive;
@@ -43,6 +46,91 @@ use error::Error;
 #[allow(dead_code)]
 mod opcode;
 use opcode::Op;
+
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HELLO)
+                                                         -> ::std::os::raw::c_int {
+	let c = nginx::ngx_ssl_get_connection(unsafe { (*client_hello).ssl });
+
+	let conn = unsafe {
+		nginx::ngx_pcalloc((*c).pool,
+		                   mem::size_of::<keyless::ngx_http_keyless_conn_t>())
+	} as *mut keyless::ngx_http_keyless_conn_t;
+	if conn.is_null() ||
+	   unsafe {
+		ssl::SSL_set_ex_data((*(*c).ssl).connection,
+		                     keyless::ngx_http_keyless_ssl_conn_index,
+		                     conn as *mut std::os::raw::c_void)
+	} != 1 {
+		return -1;
+	}
+
+	unsafe { (*conn).key.type_ = ssl::NID_undef as i32 };
+
+	let cipher_list = unsafe { ssl::SSL_get_ciphers((*client_hello).ssl) };
+
+	let mut cipher_suites: ssl::CBS = [0; 2];
+	unsafe {
+		ssl::CBS_init(&mut cipher_suites,
+		              (*client_hello).cipher_suites,
+		              (*client_hello).cipher_suites_len)
+	};
+
+	let mut cipher_suite: u16 = 0;
+	while unsafe { ssl::CBS_len(&cipher_suites) } != 0 {
+		if unsafe { ssl::CBS_get_u16(&mut cipher_suites, &mut cipher_suite) } != 1 {
+			return -1;
+		}
+
+		let cipher = unsafe { ssl::SSL_get_cipher_by_value(cipher_suite) };
+		if !cipher.is_null() &&
+		   unsafe {
+			ssl::SSL_CIPHER_is_ECDSA(cipher) == 1 &&
+			ssl::sk_find(cipher_list,
+			             ptr::null_mut(),
+			             cipher as *mut ::std::os::raw::c_void) == 1
+		} {
+			unsafe { (*conn).get_cert.ecdsa_cipher = 1 };
+			break;
+		}
+	}
+
+	let mut extension_data: *const u8 = ptr::null();
+	let mut extension_len: usize = 0;
+
+	if unsafe {
+		ssl::SSL_early_callback_ctx_extension_get(client_hello,
+		                                          ssl::TLSEXT_TYPE_signature_algorithms as
+		                                          u16,
+		                                          &mut extension_data,
+		                                          &mut extension_len)
+	} == 1 {
+		let mut extension: ssl::CBS = [0; 2];
+		unsafe { ssl::CBS_init(&mut extension, extension_data, extension_len) };
+
+		let mut sig_algs: ssl::CBS = [0; 2];
+
+		let cln = unsafe { nginx::ngx_pool_cleanup_add((*c).pool, 0) };
+		if cln.is_null() ||
+		   unsafe {
+			ssl::CBS_get_u16_length_prefixed(&mut extension, &mut sig_algs) != 1 ||
+			ssl::CBS_len(&sig_algs) == 0 || ssl::CBS_len(&extension) != 0 ||
+			ssl::CBS_len(&sig_algs) % 2 != 0 ||
+			ssl::CBS_stow(&sig_algs,
+			              &mut (*conn).get_cert.sig_algs,
+			              &mut (*conn).get_cert.sig_algs_len) != 1
+		} {
+			return -1;
+		}
+
+		unsafe {
+			(*cln).handler = mem::transmute(ssl::OPENSSL_free as *const ());
+			(*cln).data = (*conn).get_cert.sig_algs as *mut ::std::os::raw::c_void;
+		};
+	}
+
+	1
+}
 
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> ::std::os::raw::c_int {

@@ -22,7 +22,7 @@
 static void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
 
-static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
+extern int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
 
 static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
@@ -222,65 +222,6 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 	}
 
 	return NGX_CONF_OK;
-}
-
-static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello)
-{
-	const uint8_t *extension_data;
-	size_t extension_len;
-	CBS extension, cipher_suites, sig_algs;
-	STACK_OF(SSL_CIPHER) *cipher_list;
-	uint16_t cipher_suite;
-	const SSL_CIPHER *cipher;
-	ngx_connection_t *c;
-	ngx_http_keyless_conn_t *conn;
-	ngx_pool_cleanup_t *cln;
-
-	c = ngx_ssl_get_connection(client_hello->ssl);
-
-	conn = ngx_pcalloc(c->pool, sizeof(ngx_http_keyless_conn_t));
-	if (!conn || !SSL_set_ex_data(c->ssl->connection, ngx_http_keyless_ssl_conn_index, conn)) {
-		return -1;
-	}
-
-	conn->key.type = NID_undef;
-
-	cipher_list = SSL_get_ciphers(client_hello->ssl);
-
-	CBS_init(&cipher_suites, client_hello->cipher_suites, client_hello->cipher_suites_len);
-
-	while (CBS_len(&cipher_suites) != 0) {
-		if (!CBS_get_u16(&cipher_suites, &cipher_suite)) {
-			return -1;
-		}
-
-		cipher = SSL_get_cipher_by_value(cipher_suite);
-		if (cipher && SSL_CIPHER_is_ECDSA(cipher)
-			&& sk_SSL_CIPHER_find(cipher_list, NULL, cipher)) {
-			conn->get_cert.ecdsa_cipher = 1;
-			break;
-		}
-	}
-
-	if (SSL_early_callback_ctx_extension_get(client_hello, TLSEXT_TYPE_signature_algorithms,
-			&extension_data, &extension_len)) {
-		CBS_init(&extension, extension_data, extension_len);
-
-		cln = ngx_pool_cleanup_add(c->pool, 0);
-		if (!cln || !CBS_get_u16_length_prefixed(&extension, &sig_algs)
-			|| CBS_len(&sig_algs) == 0
-			|| CBS_len(&extension) != 0
-			|| CBS_len(&sig_algs) % 2 != 0
-			|| !CBS_stow(&sig_algs, &conn->get_cert.sig_algs,
-				&conn->get_cert.sig_algs_len)) {
-			return -1;
-		}
-
-		cln->handler = OPENSSL_free;
-		cln->data = conn->get_cert.sig_algs;
-	}
-
-	return 1;
 }
 
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data)
