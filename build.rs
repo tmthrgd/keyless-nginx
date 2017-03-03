@@ -61,6 +61,10 @@ fn main() {
 		.whitelisted_type("SSL_CTX")
 		// keyless_nginx.rs
 		.whitelisted_var("NID_undef")
+		.whitelisted_var("^SSL_SIGN_.*")
+		.whitelisted_function("MD5")
+		.whitelisted_function("^SHA(1|256|384|512)$")
+		.whitelisted_var(".*_DIGEST_LENGTH$")
 		// rust_openssl.h
 		.header("rust_openssl.h")
 		.generate()

@@ -70,6 +70,97 @@ pub extern "C" fn ngx_http_keyless_key_max_signature_len(ssl_conn: *mut ssl::SSL
 
 #[no_mangle]
 #[allow(unused_variables)]
+pub extern "C" fn ngx_http_keyless_key_sign(ssl_conn: *mut ssl::SSL,
+                                            out: *mut u8,
+                                            out_len: *mut usize,
+                                            max_out: usize,
+                                            signature_algorithm: u16,
+                                            in_ptr: *const u8,
+                                            in_len: usize)
+                                            -> ssl::ssl_private_key_result_t {
+	let opcode = match signature_algorithm as u32 {
+		ssl::SSL_SIGN_RSA_PKCS1_MD5_SHA1 => Op::RSASignMD5SHA1,
+		ssl::SSL_SIGN_RSA_PKCS1_SHA1 => Op::RSASignSHA1,
+		ssl::SSL_SIGN_RSA_PKCS1_SHA256 => Op::RSASignSHA256,
+		ssl::SSL_SIGN_RSA_PKCS1_SHA384 => Op::RSASignSHA384,
+		ssl::SSL_SIGN_RSA_PKCS1_SHA512 => Op::RSASignSHA512,
+
+		ssl::SSL_SIGN_RSA_PSS_SHA256 => Op::RSAPSSSignSHA256,
+		ssl::SSL_SIGN_RSA_PSS_SHA384 => Op::RSAPSSSignSHA384,
+		ssl::SSL_SIGN_RSA_PSS_SHA512 => Op::RSAPSSSignSHA512,
+
+		ssl::SSL_SIGN_ECDSA_SHA1 => Op::ECDSASignSHA1,
+		ssl::SSL_SIGN_ECDSA_SECP256R1_SHA256 => Op::ECDSASignSHA256,
+		ssl::SSL_SIGN_ECDSA_SECP384R1_SHA384 => Op::ECDSASignSHA384,
+		ssl::SSL_SIGN_ECDSA_SECP521R1_SHA512 => Op::ECDSASignSHA512,
+
+		_ => return ssl::ssl_private_key_failure,
+	};
+
+	let mut hash: [u8; ssl::SHA512_DIGEST_LENGTH as usize] =
+		[0; ssl::SHA512_DIGEST_LENGTH as usize];
+
+	let hash_len = match signature_algorithm as u32 {
+		ssl::SSL_SIGN_RSA_PKCS1_MD5_SHA1 => {
+			unsafe { ssl::MD5(in_ptr, in_len, hash.as_mut_ptr()) };
+			unsafe {
+				ssl::SHA1(in_ptr,
+				          in_len,
+				          hash[ssl::MD5_DIGEST_LENGTH as usize..].as_mut_ptr())
+			};
+			ssl::MD5_DIGEST_LENGTH + ssl::SHA_DIGEST_LENGTH
+		}
+		ssl::SSL_SIGN_RSA_PKCS1_SHA1 |
+		ssl::SSL_SIGN_ECDSA_SHA1 => {
+			unsafe { ssl::SHA1(in_ptr, in_len, hash.as_mut_ptr()) };
+			ssl::SHA_DIGEST_LENGTH
+		}
+		ssl::SSL_SIGN_RSA_PKCS1_SHA256 |
+		ssl::SSL_SIGN_ECDSA_SECP256R1_SHA256 |
+		ssl::SSL_SIGN_RSA_PSS_SHA256 => {
+			unsafe { ssl::SHA256(in_ptr, in_len, hash.as_mut_ptr()) };
+			ssl::SHA256_DIGEST_LENGTH
+		}
+		ssl::SSL_SIGN_RSA_PKCS1_SHA384 |
+		ssl::SSL_SIGN_ECDSA_SECP384R1_SHA384 |
+		ssl::SSL_SIGN_RSA_PSS_SHA384 => {
+			unsafe { ssl::SHA384(in_ptr, in_len, hash.as_mut_ptr()) };
+			ssl::SHA384_DIGEST_LENGTH
+		}
+		ssl::SSL_SIGN_RSA_PKCS1_SHA512 |
+		ssl::SSL_SIGN_ECDSA_SECP521R1_SHA512 |
+		ssl::SSL_SIGN_RSA_PSS_SHA512 => {
+			unsafe { ssl::SHA512(in_ptr, in_len, hash.as_mut_ptr()) };
+			ssl::SHA512_DIGEST_LENGTH
+		}
+		_ => return ssl::ssl_private_key_failure,
+	} as usize;
+
+	let c = nginx::ngx_ssl_get_connection(ssl_conn);
+
+	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
+	if conn.is_null() {
+		return ssl::ssl_private_key_failure;
+	};
+
+	let op = unsafe {
+		keyless::ngx_http_keyless_start_operation(opcode,
+		                                          c,
+		                                          conn,
+		                                          hash.as_ptr(),
+		                                          hash_len)
+	};
+	if op.is_null() {
+		ssl::ssl_private_key_failure
+	} else {
+		unsafe { (*conn).op = op };
+
+		ssl::ssl_private_key_retry
+	}
+}
+
+#[no_mangle]
+#[allow(unused_variables)]
 pub extern "C" fn ngx_http_keyless_key_decrypt(ssl_conn: *mut ssl::SSL,
                                                out: *mut u8,
                                                out_len: *mut usize,

@@ -34,7 +34,7 @@ static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
 extern int ngx_http_keyless_key_type(ngx_ssl_conn_t *ssl_conn);
 extern size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn);
-static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
+extern enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
 		const uint8_t *in, size_t in_len);
 extern enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t *ssl_conn,
@@ -1180,88 +1180,4 @@ static void ngx_http_keyless_cleanup_timer_handler(void *data)
 	if (ev->timer_set) {
 		ngx_del_timer(ev);
 	}
-}
-
-static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
-		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
-		const uint8_t *in, size_t in_len)
-{
-	ngx_http_keyless_operation_t opcode;
-	ngx_connection_t *c;
-	ngx_http_keyless_conn_t *conn;
-	uint8_t hash[SHA512_DIGEST_LENGTH]; // SHA-512 is the longest so far.
-	size_t hash_len;
-
-	switch (signature_algorithm) {
-		case SSL_SIGN_RSA_PKCS1_MD5_SHA1:
-			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_MD5SHA1;
-
-			MD5(in, in_len, hash);
-			SHA1(in, in_len, hash + MD5_DIGEST_LENGTH);
-			hash_len = MD5_DIGEST_LENGTH + SHA_DIGEST_LENGTH;
-			break;
-		case SSL_SIGN_RSA_PKCS1_SHA1:
-		case SSL_SIGN_ECDSA_SHA1:
-			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA1;
-
-			SHA1(in, in_len, hash);
-			hash_len = SHA_DIGEST_LENGTH;
-			break;
-		case SSL_SIGN_RSA_PKCS1_SHA256:
-		case SSL_SIGN_ECDSA_SECP256R1_SHA256:
-		case SSL_SIGN_RSA_PSS_SHA256:
-			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA256;
-
-			SHA256(in, in_len, hash);
-			hash_len = SHA256_DIGEST_LENGTH;
-			break;
-		case SSL_SIGN_RSA_PKCS1_SHA384:
-		case SSL_SIGN_ECDSA_SECP384R1_SHA384:
-		case SSL_SIGN_RSA_PSS_SHA384:
-			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA384;
-
-			SHA384(in, in_len, hash);
-			hash_len = SHA384_DIGEST_LENGTH;
-			break;
-		case SSL_SIGN_RSA_PKCS1_SHA512:
-		case SSL_SIGN_ECDSA_SECP521R1_SHA512:
-		case SSL_SIGN_RSA_PSS_SHA512:
-			opcode = NGX_HTTP_KEYLESS_OP_RSA_SIGN_SHA512;
-
-			SHA512(in, in_len, hash);
-			hash_len = SHA512_DIGEST_LENGTH;
-			break;
-		default:
-			return ssl_private_key_failure;
-	}
-
-	switch (signature_algorithm) {
-		case SSL_SIGN_ECDSA_SHA1:
-		case SSL_SIGN_ECDSA_SECP256R1_SHA256:
-		case SSL_SIGN_ECDSA_SECP384R1_SHA384:
-		case SSL_SIGN_ECDSA_SECP521R1_SHA512:
-			opcode |= NGX_HTTP_KEYLESS_OP_ECDSA_MASK;
-			break;
-		case SSL_SIGN_RSA_PSS_SHA256:
-		case SSL_SIGN_RSA_PSS_SHA384:
-		case SSL_SIGN_RSA_PSS_SHA512:
-			opcode |= NGX_HTTP_KEYLESS_OP_RSA_PSS_MASK;
-			break;
-	}
-
-	c = ngx_ssl_get_connection(ssl_conn);
-
-	conn = SSL_get_ex_data(c->ssl->connection, ngx_http_keyless_ssl_conn_index);
-	if (!conn) {
-		return ssl_private_key_failure;
-	}
-
-	conn->op = ngx_http_keyless_start_operation(opcode, c, conn, hash, hash_len);
-	if (!conn->op) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
-			"ngx_http_keyless_start_operation(...) failed");
-		return ssl_private_key_failure;
-	}
-
-	return ssl_private_key_retry;
 }
