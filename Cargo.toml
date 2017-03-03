@@ -13,6 +13,7 @@ crate-type = ["staticlib"]
 libc           = "0.2"
 num            = "0.1"
 enum_primitive = "0.1"
+byteorder      = "1.0"
 
 [build-dependencies]
 bindgen = "0.22"

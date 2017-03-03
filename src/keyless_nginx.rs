@@ -30,8 +30,13 @@ mod keyless {
 
 use std::ptr;
 use std::mem;
+use std::slice;
+use std::io::Cursor;
 
 extern crate libc;
+
+extern crate byteorder;
+use byteorder::{BigEndian, ReadBytesExt};
 
 #[macro_use]
 extern crate enum_primitive;
@@ -69,19 +74,12 @@ pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ss
 
 	let cipher_list = unsafe { ssl::SSL_get_ciphers((*client_hello).ssl) };
 
-	let mut cipher_suites: ssl::CBS = [0; 2];
-	unsafe {
-		ssl::CBS_init(&mut cipher_suites,
-		              (*client_hello).cipher_suites,
-		              (*client_hello).cipher_suites_len)
-	};
+	let mut cipher_suites = Cursor::new(unsafe {
+		slice::from_raw_parts((*client_hello).cipher_suites,
+		                      (*client_hello).cipher_suites_len)
+	});
 
-	let mut cipher_suite: u16 = 0;
-	while unsafe { ssl::CBS_len(&cipher_suites) } != 0 {
-		if unsafe { ssl::CBS_get_u16(&mut cipher_suites, &mut cipher_suite) } != 1 {
-			return -1;
-		}
-
+	while let Some(cipher_suite) = cipher_suites.read_u16::<BigEndian>().ok() {
 		let cipher = unsafe { ssl::SSL_get_cipher_by_value(cipher_suite) };
 		if !cipher.is_null() &&
 		   unsafe {
