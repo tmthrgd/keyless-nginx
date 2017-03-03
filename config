@@ -9,6 +9,4 @@ ngx_module_libs="$ngx_addon_dir/target/debug/libkeyless_nginx.a -lutil -ldl -lrt
 
 . auto/module
 
-cargo build -v --manifest-path "$ngx_addon_dir/Cargo.toml" || exit $?
-
 # -*- mode: shell;-*-
