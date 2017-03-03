@@ -515,8 +515,8 @@ pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 }
 
 // this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c
-fn ssl_cert_parse_pubkey(in_cbs: *const ssl::CBS) -> *mut ssl::EVP_PKEY {
-	let mut buf = unsafe { *in_cbs };
+fn ssl_cert_parse_pubkey(in_cbs: &ssl::CBS) -> *mut ssl::EVP_PKEY {
+	let mut buf = *in_cbs;
 	let mut toplevel: ssl::CBS = [0; 2];
 	let mut tbs_cert: ssl::CBS = [0; 2];
 
