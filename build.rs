@@ -59,6 +59,8 @@ fn main() {
 		//  SSL_CTX
 		.opaque_type("SSL_CTX")
 		.whitelisted_type("SSL_CTX")
+		// keyless_nginx.rs
+		.whitelisted_var("NID_undef")
 		// rust_openssl.h
 		.header("rust_openssl.h")
 		.generate()

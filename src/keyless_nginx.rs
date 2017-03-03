@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
 mod ssl;
 
 #[allow(dead_code)]
@@ -34,6 +35,30 @@ use num::FromPrimitive;
 
 mod error;
 use error::Error;
+
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> ::std::os::raw::c_int {
+	let c = nginx::ngx_ssl_get_connection(ssl_conn);
+
+	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
+	if conn == ptr::null_mut() {
+		ssl::NID_undef as i32
+	} else {
+		unsafe { (*conn).key.type_ }
+	}
+}
+
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_key_max_signature_len(ssl_conn: *mut ssl::SSL) -> usize {
+	let c = nginx::ngx_ssl_get_connection(ssl_conn);
+
+	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
+	if conn == ptr::null_mut() {
+		0
+	} else {
+		unsafe { (*conn).key.sig_len }
+	}
+}
 
 #[no_mangle]
 #[allow(unused_variables)]

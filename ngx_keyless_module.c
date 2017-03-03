@@ -32,8 +32,8 @@ static void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
 static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev);
 static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
-static int ngx_http_keyless_key_type(ngx_ssl_conn_t *ssl_conn);
-static size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn);
+extern int ngx_http_keyless_key_type(ngx_ssl_conn_t *ssl_conn);
+extern size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn);
 static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
 		const uint8_t *in, size_t in_len);
@@ -1180,36 +1180,6 @@ static void ngx_http_keyless_cleanup_timer_handler(void *data)
 	if (ev->timer_set) {
 		ngx_del_timer(ev);
 	}
-}
-
-static int ngx_http_keyless_key_type(ngx_ssl_conn_t *ssl_conn)
-{
-	const ngx_connection_t *c;
-	const ngx_http_keyless_conn_t *conn;
-
-	c = ngx_ssl_get_connection(ssl_conn);
-
-	conn = SSL_get_ex_data(c->ssl->connection, ngx_http_keyless_ssl_conn_index);
-	if (!conn) {
-		return NID_undef;
-	}
-
-	return conn->key.type;
-}
-
-static size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn)
-{
-	const ngx_connection_t *c;
-	const ngx_http_keyless_conn_t *conn;
-
-	c = ngx_ssl_get_connection(ssl_conn);
-
-	conn = SSL_get_ex_data(c->ssl->connection, ngx_http_keyless_ssl_conn_index);
-	if (!conn) {
-		return 0;
-	}
-
-	return conn->key.sig_len;
 }
 
 static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
