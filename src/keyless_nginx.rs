@@ -54,7 +54,7 @@ use opcode::Op;
 
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HELLO)
-                                                         -> ::std::os::raw::c_int {
+                                                         -> std::os::raw::c_int {
 	let c = nginx::ngx_ssl_get_connection(unsafe { (*client_hello).ssl });
 
 	let conn = unsafe {
@@ -86,7 +86,7 @@ pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ss
 			ssl::SSL_CIPHER_is_ECDSA(cipher) == 1 &&
 			ssl::sk_find(cipher_list,
 			             ptr::null_mut(),
-			             cipher as *mut ::std::os::raw::c_void) == 1
+			             cipher as *mut std::os::raw::c_void) == 1
 		} {
 			unsafe { (*conn).get_cert.ecdsa_cipher = 1 };
 			break;
@@ -123,7 +123,7 @@ pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ss
 
 		unsafe {
 			(*cln).handler = mem::transmute(ssl::OPENSSL_free as *const ());
-			(*cln).data = (*conn).get_cert.sig_algs as *mut ::std::os::raw::c_void;
+			(*cln).data = (*conn).get_cert.sig_algs as *mut std::os::raw::c_void;
 		};
 	}
 
@@ -131,7 +131,7 @@ pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ss
 }
 
 #[no_mangle]
-pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> ::std::os::raw::c_int {
+pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
