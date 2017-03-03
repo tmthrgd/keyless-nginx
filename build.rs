@@ -39,8 +39,6 @@ fn main() {
 	let nginx_path = env::var("NGINX_DIR").unwrap_or(String::new());
 	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-	println!("{} {}", openssl_path, nginx_path);
-
 	let _ = new_builder(&openssl_path, &nginx_path)
 		// CBS_*
 		.opaque_type("CBS")
