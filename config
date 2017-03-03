@@ -5,7 +5,7 @@ ngx_module_name=ngx_http_keyless_module
 ngx_module_incs=$ngx_addon_dir
 ngx_module_deps=
 ngx_module_srcs="$ngx_addon_dir/ngx_keyless_module.c"
-ngx_module_libs=
+ngx_module_libs="$ngx_addon_dir/target/debug/libkeyless_nginx.a"
 
 . auto/module
 
