@@ -98,6 +98,8 @@ fn main() {
 		.whitelisted_function("^ngx_http_keyless_.*")
 		.whitelisted_type("^ngx_http_keyless_.*")
 		.whitelisted_var("^ngx_http_keyless_.*")
+		.hide_type("ngx_http_keyless_error_t")
+		.hide_type("ngx_http_keyless_operation_t")
 		.header("ngx_keyless_module.h")
 		.generate()
 		.expect("build failed")

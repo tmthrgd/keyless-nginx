@@ -13,6 +13,9 @@ mod keyless {
 	use ssl::*;
 	use nginx::*;
 
+	use error::Error as ngx_http_keyless_error_t;
+	use opcode::Op as ngx_http_keyless_operation_t;
+
 	include!(concat!(env!("OUT_DIR"), "/keyless.rs"));
 
 	pub use self::ngx_http_keyless_operation_t::*;
@@ -33,8 +36,13 @@ extern crate enum_primitive;
 extern crate num;
 use num::FromPrimitive;
 
+#[allow(dead_code)]
 mod error;
 use error::Error;
+
+#[allow(dead_code)]
+mod opcode;
+use opcode::Op;
 
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> ::std::os::raw::c_int {
@@ -77,7 +85,7 @@ pub extern "C" fn ngx_http_keyless_key_decrypt(ssl_conn: *mut ssl::SSL,
 	};
 
 	let op = unsafe {
-		keyless::ngx_http_keyless_start_operation(keyless::NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW,
+		keyless::ngx_http_keyless_start_operation(Op::RSADecryptRaw,
 		                                          c,
 		                                          conn,
 		                                          in_ptr,

@@ -1,4 +1,6 @@
 enum_from_primitive! {
+#[repr(u16)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Error {
 	// The range [0x0000, 0x0100) is for errors taken from Cloudflare's upstream.
 	None             = 0x0000, // No error
