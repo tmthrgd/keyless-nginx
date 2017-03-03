@@ -190,5 +190,8 @@ typedef struct {
 
 extern int ngx_http_keyless_ssl_conn_index;
 
+extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
+		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
+		size_t in_len);
 extern enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_http_keyless_op_t *op, CBS *out);
 extern void ngx_http_keyless_cleanup_operation(ngx_http_keyless_op_t *op);

@@ -25,10 +25,6 @@ static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 static int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
 static int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
 
-static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
-		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
-		size_t in_len);
-
 static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 static void ngx_http_keyless_socket_read_udp_handler(ngx_event_t *rev);
 static void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
@@ -41,7 +37,7 @@ static size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn);
 static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
 		const uint8_t *in, size_t in_len);
-static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t *ssl_conn,
+extern enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
 extern enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out);
@@ -435,7 +431,7 @@ error:
 	return ret;
 }
 
-static ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
+extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
 		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
 		size_t in_len)
 {
@@ -1294,30 +1290,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *s
 	if (!conn->op) {
 		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0,
 			"ngx_http_keyless_start_operation(...) failed");
-		return ssl_private_key_failure;
-	}
-
-	return ssl_private_key_retry;
-}
-
-static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t *ssl_conn,
-		uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len)
-{
-	ngx_connection_t *c;
-	ngx_http_keyless_conn_t *conn;
-
-	c = ngx_ssl_get_connection(ssl_conn);
-
-	conn = SSL_get_ex_data(c->ssl->connection, ngx_http_keyless_ssl_conn_index);
-	if (!conn) {
-		return ssl_private_key_failure;
-	}
-
-	conn->op = ngx_http_keyless_start_operation(NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW, c, conn,
-		in, in_len);
-	if (!conn->op) {
-		ngx_ssl_error(NGX_LOG_EMERG, c->log, 0, "ngx_http_keyless_start_operation("
-			"NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW) failed");
 		return ssl_private_key_failure;
 	}
 

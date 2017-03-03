@@ -14,6 +14,8 @@ mod keyless {
 
 	include!(concat!(env!("OUT_DIR"), "/keyless.rs"));
 
+	pub use self::ngx_http_keyless_operation_t::*;
+
 	pub fn get_conn(ssl: *const SSL) -> *mut ngx_http_keyless_conn_t {
 		unsafe {
 			SSL_get_ex_data(ssl, ngx_http_keyless_ssl_conn_index) as
@@ -32,6 +34,38 @@ use num::FromPrimitive;
 
 mod error;
 use error::Error;
+
+#[no_mangle]
+#[allow(unused_variables)]
+pub extern "C" fn ngx_http_keyless_key_decrypt(ssl_conn: *mut ssl::SSL,
+                                               out: *mut u8,
+                                               out_len: *mut usize,
+                                               max_out: usize,
+                                               in_ptr: *const u8,
+                                               in_len: usize)
+                                               -> ssl::ssl_private_key_result_t {
+	let c = nginx::ngx_ssl_get_connection(ssl_conn);
+
+	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
+	if conn == ptr::null_mut() {
+		return ssl::ssl_private_key_failure;
+	};
+
+	let op = unsafe {
+		keyless::ngx_http_keyless_start_operation(keyless::NGX_HTTP_KEYLESS_OP_RSA_DECRYPT_RAW,
+		                                          c,
+		                                          conn,
+		                                          in_ptr,
+		                                          in_len)
+	};
+	if op == ptr::null_mut() {
+		ssl::ssl_private_key_failure
+	} else {
+		unsafe { (*conn).op = op };
+
+		ssl::ssl_private_key_retry
+	}
+}
 
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_key_complete(ssl_conn: *mut ssl::SSL,
