@@ -64,25 +64,23 @@ pub extern "C" fn ngx_http_keyless_ssl_cert_parse_pubkey(in_cbs: *const ssl::CBS
 	let mut toplevel: ssl::CBS = [0; 2];
 	let mut tbs_cert: ssl::CBS = [0; 2];
 
-	let null_cbs = ptr::null_mut() as *mut ssl::CBS;
-
 	unsafe {
 		if ssl::CBS_get_asn1(&mut buf, &mut toplevel, ssl::CBS_ASN1_SEQUENCE) == 1 &&
 		ssl::CBS_len(&buf) == 0 &&
 		ssl::CBS_get_asn1(&mut toplevel, &mut tbs_cert, ssl::CBS_ASN1_SEQUENCE) == 1 &&
 		/* version */
-		ssl::CBS_get_optional_asn1(&mut tbs_cert, null_cbs, ptr::null_mut(),
+		ssl::CBS_get_optional_asn1(&mut tbs_cert, ptr::null_mut(), ptr::null_mut(),
 			ssl::CBS_ASN1_CONSTRUCTED | ssl::CBS_ASN1_CONTEXT_SPECIFIC) == 1 &&
 		/* serialNumber */
-		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_INTEGER) == 1 &&
+		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_INTEGER) == 1 &&
 		/* signature algorithm */
-		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1 &&
 		/* issuer */
-		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1 &&
 		/* validity */
-		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1 &&
 		/* subject */
-		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 {
+		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1 {
 			ssl::EVP_parse_public_key(&mut tbs_cert)
 		} else {
 			ptr::null_mut()
