@@ -1,11 +1,6 @@
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
-
-mod ssl {
-	include!(concat!(env!("OUT_DIR"), "/openssl.rs"));
-
-	pub const CBS_ASN1_SEQUENCE: ::std::os::raw::c_uint = 0x10 | CBS_ASN1_CONSTRUCTED;
-}
+mod ssl;
 
 use std::ptr;
 
