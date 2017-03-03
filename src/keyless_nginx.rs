@@ -7,8 +7,6 @@ mod ssl {
 	pub const CBS_ASN1_SEQUENCE: ::std::os::raw::c_uint = 0x10 | CBS_ASN1_CONSTRUCTED;
 }
 
-extern crate libc;
-
 use std::ptr;
 
 #[macro_use]
