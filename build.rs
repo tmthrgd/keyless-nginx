@@ -72,7 +72,7 @@ fn main() {
 		.whitelisted_var("^SSL_SIGN_.*")
 		.whitelisted_function("MD5")
 		.whitelisted_function("^SHA(1|256|384|512)$")
-		.whitelisted_var(".*_DIGEST_LENGTH$")
+		.whitelisted_var("^(MD5|SHA(256|384|512)?)_DIGEST_LENGTH$")
 		// rust_openssl.h
 		.header("rust_openssl.h")
 		.generate()
