@@ -229,7 +229,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t
 static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_t *ssl_conn,
 		uint8_t *out, size_t *out_len, size_t max_out);
 
-static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error);
+extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
 
 /* this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c */
 static EVP_PKEY *ngx_http_keyless_ssl_cert_parse_pubkey(const CBS *in);
@@ -1542,38 +1542,6 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 
 	ngx_http_keyless_cleanup_operation(conn->op);
 	return rc;
-}
-
-static const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t error)
-{
-	switch (error) {
-		case NGX_HTTP_KEYLESS_ERROR_NONE:
-			return "no error";
-		case NGX_HTTP_KEYLESS_ERROR_CRYPTO_FAILED:
-			return "cryptography error";
-		case NGX_HTTP_KEYLESS_ERROR_KEY_NOT_FOUND:
-			return "key not found";
-		case NGX_HTTP_KEYLESS_ERROR_DISK_READ:
-			return "disk read failure";
-		case NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH:
-			return "version mismatch";
-		case NGX_HTTP_KEYLESS_ERROR_BAD_OPCODE:
-			return "bad opcode";
-		case NGX_HTTP_KEYLESS_ERROR_UNEXPECTED_OPCODE:
-			return "unexpected opcode";
-		case NGX_HTTP_KEYLESS_ERROR_FORMAT:
-			return "malformed message";
-		case NGX_HTTP_KEYLESS_ERROR_INTERNAL:
-			return "internal error";
-		case NGX_HTTP_KEYLESS_ERROR_CERT_NOT_FOUND:
-			return "certificate not found";
-		case NGX_HTTP_KEYLESS_ERROR_NOT_AUTHORISED:
-			return "client not authorised";
-		case NGX_HTTP_KEYLESS_ERROR_EXPIRED:
-			return "sealing key expired";
-		default:
-			return "unknown error";
-	}
 }
 
 /* this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c */
