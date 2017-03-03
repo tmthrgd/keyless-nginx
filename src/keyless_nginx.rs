@@ -49,7 +49,7 @@ pub extern "C" fn ngx_http_keyless_key_type(ssl_conn: *mut ssl::SSL) -> ::std::o
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
-	if conn == ptr::null_mut() {
+	if conn.is_null() {
 		ssl::NID_undef as i32
 	} else {
 		unsafe { (*conn).key.type_ }
@@ -61,7 +61,7 @@ pub extern "C" fn ngx_http_keyless_key_max_signature_len(ssl_conn: *mut ssl::SSL
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
-	if conn == ptr::null_mut() {
+	if conn.is_null() {
 		0
 	} else {
 		unsafe { (*conn).key.sig_len }
@@ -80,7 +80,7 @@ pub extern "C" fn ngx_http_keyless_key_decrypt(ssl_conn: *mut ssl::SSL,
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
-	if conn == ptr::null_mut() {
+	if conn.is_null() {
 		return ssl::ssl_private_key_failure;
 	};
 
@@ -91,7 +91,7 @@ pub extern "C" fn ngx_http_keyless_key_decrypt(ssl_conn: *mut ssl::SSL,
 		                                          in_ptr,
 		                                          in_len)
 	};
-	if op == ptr::null_mut() {
+	if op.is_null() {
 		ssl::ssl_private_key_failure
 	} else {
 		unsafe { (*conn).op = op };
@@ -109,7 +109,7 @@ pub extern "C" fn ngx_http_keyless_key_complete(ssl_conn: *mut ssl::SSL,
 	let c = nginx::ngx_ssl_get_connection(ssl_conn);
 
 	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
-	if conn == ptr::null_mut() {
+	if conn.is_null() {
 		return ssl::ssl_private_key_failure;
 	};
 
