@@ -68,6 +68,28 @@ pub extern "C" fn ngx_http_keyless_key_max_signature_len(ssl_conn: *mut ssl::SSL
 	}
 }
 
+fn key_start_operation(op: Op,
+                       ssl_conn: *mut ssl::SSL,
+                       in_ptr: *const u8,
+                       in_len: usize)
+                       -> ssl::ssl_private_key_result_t {
+	let c = nginx::ngx_ssl_get_connection(ssl_conn);
+
+	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
+	if conn.is_null() {
+		return ssl::ssl_private_key_failure;
+	};
+
+	let op = unsafe { keyless::ngx_http_keyless_start_operation(op, c, conn, in_ptr, in_len) };
+	if op.is_null() {
+		ssl::ssl_private_key_failure
+	} else {
+		unsafe { (*conn).op = op };
+
+		ssl::ssl_private_key_retry
+	}
+}
+
 #[no_mangle]
 #[allow(unused_variables)]
 pub extern "C" fn ngx_http_keyless_key_sign(ssl_conn: *mut ssl::SSL,
@@ -136,27 +158,7 @@ pub extern "C" fn ngx_http_keyless_key_sign(ssl_conn: *mut ssl::SSL,
 		_ => return ssl::ssl_private_key_failure,
 	} as usize;
 
-	let c = nginx::ngx_ssl_get_connection(ssl_conn);
-
-	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
-	if conn.is_null() {
-		return ssl::ssl_private_key_failure;
-	};
-
-	let op = unsafe {
-		keyless::ngx_http_keyless_start_operation(opcode,
-		                                          c,
-		                                          conn,
-		                                          hash.as_ptr(),
-		                                          hash_len)
-	};
-	if op.is_null() {
-		ssl::ssl_private_key_failure
-	} else {
-		unsafe { (*conn).op = op };
-
-		ssl::ssl_private_key_retry
-	}
+	key_start_operation(opcode, ssl_conn, hash.as_ptr(), hash_len)
 }
 
 #[no_mangle]
@@ -168,27 +170,7 @@ pub extern "C" fn ngx_http_keyless_key_decrypt(ssl_conn: *mut ssl::SSL,
                                                in_ptr: *const u8,
                                                in_len: usize)
                                                -> ssl::ssl_private_key_result_t {
-	let c = nginx::ngx_ssl_get_connection(ssl_conn);
-
-	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
-	if conn.is_null() {
-		return ssl::ssl_private_key_failure;
-	};
-
-	let op = unsafe {
-		keyless::ngx_http_keyless_start_operation(Op::RSADecryptRaw,
-		                                          c,
-		                                          conn,
-		                                          in_ptr,
-		                                          in_len)
-	};
-	if op.is_null() {
-		ssl::ssl_private_key_failure
-	} else {
-		unsafe { (*conn).op = op };
-
-		ssl::ssl_private_key_retry
-	}
+	key_start_operation(Op::RSADecryptRaw, ssl_conn, in_ptr, in_len)
 }
 
 #[no_mangle]
