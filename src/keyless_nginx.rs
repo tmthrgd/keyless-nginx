@@ -289,7 +289,7 @@ pub extern "C" fn ngx_http_keyless_cert_cb(ssl_conn: *mut ssl::SSL,
 		return 0;
 	}
 
-	let public_key = ssl_cert_parse_pubkey(&child);
+	let public_key = ssl::ssl_cert_parse_pubkey(&child);
 	if public_key.is_null() {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 		return 0;
@@ -512,34 +512,4 @@ pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 		_ => "unknown error\0",
 	};
 	msg.as_ptr()
-}
-
-// this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c
-fn ssl_cert_parse_pubkey(in_cbs: &ssl::CBS) -> *mut ssl::EVP_PKEY {
-	let mut buf = *in_cbs;
-	let mut toplevel: ssl::CBS = [0; 2];
-	let mut tbs_cert: ssl::CBS = [0; 2];
-
-	if unsafe {
-		ssl::CBS_get_asn1(&mut buf, &mut toplevel, ssl::CBS_ASN1_SEQUENCE) == 1 &&
-		ssl::CBS_len(&buf) == 0 &&
-		ssl::CBS_get_asn1(&mut toplevel, &mut tbs_cert, ssl::CBS_ASN1_SEQUENCE) == 1 &&
-		/* version */
-		ssl::CBS_get_optional_asn1(&mut tbs_cert, ptr::null_mut(), ptr::null_mut(),
-			ssl::CBS_ASN1_CONSTRUCTED | ssl::CBS_ASN1_CONTEXT_SPECIFIC) == 1 &&
-		/* serialNumber */
-		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_INTEGER) == 1 &&
-		/* signature algorithm */
-		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1 &&
-		/* issuer */
-		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1 &&
-		/* validity */
-		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1 &&
-		/* subject */
-		ssl::CBS_get_asn1(&mut tbs_cert, ptr::null_mut(), ssl::CBS_ASN1_SEQUENCE) == 1
-	} {
-		unsafe { ssl::EVP_parse_public_key(&mut tbs_cert) }
-	} else {
-		ptr::null_mut()
-	}
 }
