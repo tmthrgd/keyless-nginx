@@ -1,6 +1,8 @@
 extern crate libc;
 
-#[macro_use] extern crate enum_primitive;
+#[macro_use]
+extern crate enum_primitive;
+
 extern crate num;
 use num::FromPrimitive;
 
@@ -29,19 +31,19 @@ enum Error {
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 	let msg: &'static str = match Error::from_u16(code) {
-	Some(Error::None)             => "no error\0",
-	Some(Error::CryptoFailed)     => "cryptography error\0",
-	Some(Error::KeyNotFound)      => "key not found\0",
-	Some(Error::DiskRead)         => "disk read failure\0",
-	Some(Error::VersionMismatch)  => "version mismatch\0",
-	Some(Error::BadOpcode)        => "bad opcode\0",
-	Some(Error::UnexpectedOpcode) => "unexpected opcode\0",
-	Some(Error::Format)           => "malformed message\0",
-	Some(Error::Internal)         => "internal error\0",
-	Some(Error::CertNotFound)     => "certificate not found\0",
-	Some(Error::Expired)          => "sealing key expired\0",
-	Some(Error::NotAuthorised)    => "client not authorised\0",
-	_                             => "unknown error\0",
+		Some(Error::None) => "no error\0",
+		Some(Error::CryptoFailed) => "cryptography error\0",
+		Some(Error::KeyNotFound) => "key not found\0",
+		Some(Error::DiskRead) => "disk read failure\0",
+		Some(Error::VersionMismatch) => "version mismatch\0",
+		Some(Error::BadOpcode) => "bad opcode\0",
+		Some(Error::UnexpectedOpcode) => "unexpected opcode\0",
+		Some(Error::Format) => "malformed message\0",
+		Some(Error::Internal) => "internal error\0",
+		Some(Error::CertNotFound) => "certificate not found\0",
+		Some(Error::Expired) => "sealing key expired\0",
+		Some(Error::NotAuthorised) => "client not authorised\0",
+		_ => "unknown error\0",
 	};
 	msg.as_ptr()
 }
