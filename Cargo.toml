@@ -3,6 +3,7 @@ name    = "keyless_nginx"
 version = "0.0.1"
 authors = ["Tom Thorogood <me@tomthorogood.co.uk>"]
 publish = false
+build   = "build.rs"
 
 [lib]
 name       = "keyless_nginx"
@@ -12,3 +13,6 @@ crate-type = ["staticlib"]
 libc           = "0.2"
 num            = "0.1"
 enum_primitive = "0.1"
+
+[build-dependencies]
+bindgen = "0.22"

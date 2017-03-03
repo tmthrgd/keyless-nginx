@@ -1,4 +1,12 @@
+mod ssl {
+	include!(concat!(env!("OUT_DIR"), "/openssl.rs"));
+
+	pub const CBS_ASN1_SEQUENCE: ::std::os::raw::c_uint = 0x10 | CBS_ASN1_CONSTRUCTED;
+}
+
 extern crate libc;
+
+use std::ptr;
 
 #[macro_use]
 extern crate enum_primitive;
@@ -46,4 +54,38 @@ pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 		_ => "unknown error\0",
 	};
 	msg.as_ptr()
+}
+
+// this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_ssl_cert_parse_pubkey(in_cbs: *const ssl::CBS)
+                                                         -> *mut ssl::EVP_PKEY {
+	let mut buf = unsafe { *in_cbs };
+	let mut toplevel: ssl::CBS = [0; 2];
+	let mut tbs_cert: ssl::CBS = [0; 2];
+
+	let null_cbs = ptr::null_mut() as *mut ssl::CBS;
+
+	unsafe {
+		if ssl::CBS_get_asn1(&mut buf, &mut toplevel, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		ssl::CBS_len(&buf) == 0 &&
+		ssl::CBS_get_asn1(&mut toplevel, &mut tbs_cert, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		/* version */
+		ssl::CBS_get_optional_asn1(&mut tbs_cert, null_cbs, ptr::null_mut(),
+			ssl::CBS_ASN1_CONSTRUCTED | ssl::CBS_ASN1_CONTEXT_SPECIFIC) == 1 &&
+		/* serialNumber */
+		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_INTEGER) == 1 &&
+		/* signature algorithm */
+		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		/* issuer */
+		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		/* validity */
+		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 &&
+		/* subject */
+		ssl::CBS_get_asn1(&mut tbs_cert, null_cbs, ssl::CBS_ASN1_SEQUENCE) == 1 {
+			ssl::EVP_parse_public_key(&mut tbs_cert)
+		} else {
+			ptr::null_mut()
+		}
+	}
 }

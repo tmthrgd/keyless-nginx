@@ -231,8 +231,7 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 
 extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
 
-/* this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c */
-static EVP_PKEY *ngx_http_keyless_ssl_cert_parse_pubkey(const CBS *in);
+extern EVP_PKEY *ngx_http_keyless_ssl_cert_parse_pubkey(const CBS *in);
 
 static ngx_str_t ngx_http_keyless_sess_id_ctx = ngx_string("keyless-HTTP");
 
@@ -1542,31 +1541,4 @@ static enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_
 
 	ngx_http_keyless_cleanup_operation(conn->op);
 	return rc;
-}
-
-/* this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c */
-static EVP_PKEY *ngx_http_keyless_ssl_cert_parse_pubkey(const CBS *in) {
-  CBS buf = *in, toplevel, tbs_cert;
-  if (!CBS_get_asn1(&buf, &toplevel, CBS_ASN1_SEQUENCE) ||
-      CBS_len(&buf) != 0 ||
-      !CBS_get_asn1(&toplevel, &tbs_cert, CBS_ASN1_SEQUENCE) ||
-      /* version */
-      !CBS_get_optional_asn1(
-          &tbs_cert, NULL, NULL,
-          CBS_ASN1_CONSTRUCTED | CBS_ASN1_CONTEXT_SPECIFIC | 0) ||
-      /* serialNumber */
-      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_INTEGER) ||
-      /* signature algorithm */
-      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE) ||
-      /* issuer */
-      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE) ||
-      /* validity */
-      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE) ||
-      /* subject */
-      !CBS_get_asn1(&tbs_cert, NULL, CBS_ASN1_SEQUENCE)) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_CANNOT_PARSE_LEAF_CERT);
-    return NULL;
-  }
-
-  return EVP_parse_public_key(&tbs_cert);
 }
