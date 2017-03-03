@@ -2,6 +2,26 @@
 #[allow(non_camel_case_types)]
 mod ssl;
 
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+mod nginx;
+
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+mod keyless {
+	use ssl::*;
+	use nginx::*;
+
+	include!(concat!(env!("OUT_DIR"), "/keyless.rs"));
+
+	pub fn get_conn(ssl: *const SSL) -> *mut ngx_http_keyless_conn_t {
+		unsafe {
+			SSL_get_ex_data(ssl, ngx_http_keyless_ssl_conn_index) as
+			*mut ngx_http_keyless_conn_t
+		}
+	}
+}
+
 use std::ptr;
 
 #[macro_use]
@@ -12,6 +32,42 @@ use num::FromPrimitive;
 
 mod error;
 use error::Error;
+
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_key_complete(ssl_conn: *mut ssl::SSL,
+                                                out: *mut u8,
+                                                out_len: *mut usize,
+                                                max_out: usize)
+                                                -> ssl::ssl_private_key_result_t {
+	let c = nginx::ngx_ssl_get_connection(ssl_conn);
+
+	let conn = keyless::get_conn(unsafe { (*(*c).ssl).connection });
+	if conn == ptr::null_mut() {
+		return ssl::ssl_private_key_failure;
+	};
+
+	let mut payload: ssl::CBS = [0; 2];
+
+	let mut rc =
+		unsafe { keyless::ngx_http_keyless_operation_complete((*conn).op, &mut payload) };
+	match rc {
+		ssl::ssl_private_key_retry => return rc,
+		ssl::ssl_private_key_success => {
+			unsafe { *out_len = ssl::CBS_len(&payload) };
+
+			if unsafe {
+				ssl::CBS_len(&payload) > max_out ||
+				ssl::CBS_copy_bytes(&mut payload, out, ssl::CBS_len(&payload)) != 1
+			} {
+				rc = ssl::ssl_private_key_failure;
+			};
+		}
+		ssl::ssl_private_key_failure => (),
+	}
+
+	unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+	rc
+}
 
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
