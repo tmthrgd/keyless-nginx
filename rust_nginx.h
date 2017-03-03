@@ -3,3 +3,5 @@
 #include <ngx_core.h>
 #include <ngx_event.h>
 #include <ngx_http.h>
+
+// -*- mode: c;-*-
