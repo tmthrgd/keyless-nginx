@@ -4,13 +4,13 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-	let openssl_path = env::var("OPENSSL_INCLUDE").unwrap();
+	let openssl_path = env::var("OPENSSL_INCLUDE");
 	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
 	let mut b = bindgen::builder();
 
-	if !openssl_path.is_empty() {
-		b = b.clang_arg("-I".to_string() + &openssl_path);
+	if openssl_path.is_ok() {
+		b = b.clang_arg("-I".to_string() + openssl_path.as_ref().unwrap());
 	};
 
 	let _ = b.no_unstable_rust()
