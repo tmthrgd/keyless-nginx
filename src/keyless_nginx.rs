@@ -19,6 +19,8 @@ mod keyless {
 	include!(concat!(env!("OUT_DIR"), "/keyless.rs"));
 }
 
+mod get_cert;
+
 use std::ptr;
 use std::mem;
 use std::slice;
@@ -34,6 +36,10 @@ extern crate enum_primitive;
 
 extern crate num;
 use num::FromPrimitive;
+
+#[macro_use]
+extern crate nom;
+use nom::IResult;
 
 #[allow(dead_code)]
 mod error;
@@ -417,14 +423,23 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		ssl::SSL_set_private_key_method(ssl, &KEY_METHOD);
 	};
 
-	let mut child: ssl::CBS = ssl::CBS::default();
-
-	if unsafe { ssl::CBS_get_u16_length_prefixed(&mut payload, &mut child) } != 1 {
+	let ret = get_cert::parse(unsafe {
+		slice::from_raw_parts(ssl::CBS_data(&payload), ssl::CBS_len(&payload))
+	});
+	if !ret.is_done() {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 		return 0;
-	}
+	};
+	let (rest, res) = ret.unwrap();
+	if !rest.is_empty() {
+		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+		return 0;
+	};
 
-	let public_key = ssl::ssl_cert_parse_pubkey(&child);
+	let mut leaf = ssl::CBS::default();
+	unsafe { ssl::CBS_init(&mut leaf, res.leaf.as_ptr(), res.leaf.len()) };
+
+	let public_key = ssl::ssl_cert_parse_pubkey(&leaf);
 	if public_key.is_null() {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 		return 0;
@@ -442,24 +457,13 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		ssl::EVP_PKEY_free(public_key);
 	};
 
-	if unsafe {
-		ssl::SSL_use_certificate_ASN1(ssl, ssl::CBS_data(&child), ssl::CBS_len(&child))
-	} != 1 {
+	if unsafe { ssl::SSL_use_certificate_ASN1(ssl, res.leaf.as_ptr(), res.leaf.len()) } != 1 {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 		return 0;
 	}
 
-	while unsafe { ssl::CBS_len(&payload) } != 0 {
-		if unsafe { ssl::CBS_get_u16_length_prefixed(&mut payload, &mut child) } != 1 {
-			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
-			return 0;
-		}
-
-		if unsafe {
-			ssl::SSL_add_chain_cert_ASN1(ssl,
-			                             ssl::CBS_data(&child),
-			                             ssl::CBS_len(&child))
-		} != 1 {
+	for cert in res.chain {
+		if unsafe { ssl::SSL_add_chain_cert_ASN1(ssl, cert.as_ptr(), cert.len()) } != 1 {
 			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 			return 0;
 		}
