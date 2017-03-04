@@ -6,6 +6,7 @@ use std::path::PathBuf;
 fn new_builder(openssl_path: &String, nginx_path: &String) -> bindgen::Builder {
 	let mut b = bindgen::builder()
 		.no_unstable_rust()
+		.derive_default(true)
 		.clang_arg("-DBORINGSSL_SHARED_LIBRARY");
 
 	if !openssl_path.is_empty() {

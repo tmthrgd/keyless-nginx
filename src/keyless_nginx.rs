@@ -135,10 +135,10 @@ pub extern "C" fn ngx_http_keyless_select_certificate_cb(client_hello: *const ss
 		                                          &mut extension_data,
 		                                          &mut extension_len)
 	} == 1 {
-		let mut extension: ssl::CBS = [0; 2];
+		let mut extension: ssl::CBS = ssl::CBS::default();
 		unsafe { ssl::CBS_init(&mut extension, extension_data, extension_len) };
 
-		let mut sig_algs: ssl::CBS = [0; 2];
+		let mut sig_algs: ssl::CBS = ssl::CBS::default();
 
 		let cln = unsafe { nginx::ngx_pool_cleanup_add((*c).pool, 0) };
 		if cln.is_null() ||
@@ -203,7 +203,7 @@ pub extern "C" fn ngx_http_keyless_cert_cb(ssl_conn: *mut ssl::SSL,
 		return 0;
 	};
 
-	let mut payload: ssl::CBS = [0; 2];
+	let mut payload: ssl::CBS = ssl::CBS::default();
 
 	match unsafe { keyless::ngx_http_keyless_operation_complete((*conn).op, &mut payload) } {
 		ssl::ssl_private_key_failure => {
@@ -235,7 +235,7 @@ pub extern "C" fn ngx_http_keyless_cert_cb(ssl_conn: *mut ssl::SSL,
 		                         ssl::SHA_DIGEST_LENGTH as usize)
 	};
 
-	let mut sha_ctx: ssl::SHA256_CTX = [0; 28];
+	let mut sha_ctx: ssl::SHA256_CTX = ssl::SHA256_CTX::default();
 	let mut sid_ctx: [u8; ssl::SHA256_DIGEST_LENGTH as usize] =
 		[0; ssl::SHA256_DIGEST_LENGTH as usize];
 
@@ -280,7 +280,7 @@ pub extern "C" fn ngx_http_keyless_cert_cb(ssl_conn: *mut ssl::SSL,
 		ssl::SSL_set_private_key_method(ssl, &KEY_METHOD);
 	};
 
-	let mut child: ssl::CBS = [0; 2];
+	let mut child: ssl::CBS = ssl::CBS::default();
 
 	if unsafe { ssl::CBS_get_u16_length_prefixed(&mut payload, &mut child) } != 1 {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
@@ -469,7 +469,7 @@ pub extern "C" fn key_complete(ssl_conn: *mut ssl::SSL,
 		return ssl::ssl_private_key_failure;
 	};
 
-	let mut payload: ssl::CBS = [0; 2];
+	let mut payload: ssl::CBS = ssl::CBS::default();
 
 	let mut rc =
 		unsafe { keyless::ngx_http_keyless_operation_complete((*conn).op, &mut payload) };
