@@ -32,16 +32,6 @@ static void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
 static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev);
 static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
-extern int ngx_http_keyless_key_type(ngx_ssl_conn_t *ssl_conn);
-extern size_t ngx_http_keyless_key_max_signature_len(ngx_ssl_conn_t *ssl_conn);
-extern enum ssl_private_key_result_t ngx_http_keyless_key_sign(ngx_ssl_conn_t *ssl_conn,
-		uint8_t *out, size_t *out_len, size_t max_out, uint16_t signature_algorithm,
-		const uint8_t *in, size_t in_len);
-extern enum ssl_private_key_result_t ngx_http_keyless_key_decrypt(ngx_ssl_conn_t *ssl_conn,
-		uint8_t *out, size_t *out_len, size_t max_out, const uint8_t *in, size_t in_len);
-extern enum ssl_private_key_result_t ngx_http_keyless_key_complete(ngx_ssl_conn_t *ssl_conn,
-		uint8_t *out, size_t *out_len, size_t max_out);
-
 extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
 
 int ngx_http_keyless_ctx_conf_index = -1;
