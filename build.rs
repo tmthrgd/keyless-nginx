@@ -93,8 +93,6 @@ fn main() {
 		.write_to_file(out_path.join("openssl.rs"));
 
 	let _ = new_builder(&openssl_path, &nginx_path)
-		// ngx_ssl_connection_index
-		.whitelisted_var("ngx_ssl_connection_index")
 		// ngx_connection_t
 		.hide_type("^SSL.*")
 		.opaque_type("ngx_listening_t")
@@ -120,6 +118,7 @@ fn main() {
 		.whitelisted_type("ngx_conf_t")
 		.whitelisted_var("NGX_CONF_UNSET")
 		// rust_nginx.h
+		.whitelisted_function("^ngx_http_keyless_macro_.*")
 		.header("rust_nginx.h")
 		.generate()
 		.expect("build failed")
