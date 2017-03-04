@@ -252,13 +252,14 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 
 	let cipher_list = unsafe { ssl::SSL_get_ciphers((*client_hello).ssl) };
 
-	for cipher_suite in match parse_cipher_suites(unsafe {
-		slice::from_raw_parts((*client_hello).cipher_suites,
-		                      (*client_hello).cipher_suites_len)
-	}) {
-		IResult::Done(i, ref v) if i.is_empty() => v,
-		_ => return -1,
-	} {
+	for cipher_suite in
+		match parse_cipher_suites(unsafe {
+			slice::from_raw_parts((*client_hello).cipher_suites,
+			                      (*client_hello).cipher_suites_len)
+		}) {
+			IResult::Done(i, ref v) if i.is_empty() => v,
+			_ => return -1,
+		} {
 		let cipher = unsafe { ssl::SSL_get_cipher_by_value(*cipher_suite) };
 		if !cipher.is_null() &&
 		   unsafe {
