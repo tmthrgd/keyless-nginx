@@ -31,7 +31,7 @@ static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
 extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
 
-int ngx_http_keyless_ctx_conf_index = -1;
+extern int ngx_http_keyless_ctx_conf_index;
 
 static ngx_command_t ngx_http_keyless_module_commands[] = {
 	{ ngx_string("keyless_ssl"),
