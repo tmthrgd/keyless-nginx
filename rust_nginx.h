@@ -5,5 +5,8 @@
 #include <ngx_http.h>
 
 extern ngx_connection_t *ngx_http_keyless_macro_ngx_ssl_get_connection(ngx_ssl_conn_t *ssl_conn);
+extern void *ngx_http_keyless_macro_ngx_http_conf_get_module_srv_conf(const ngx_conf_t *cf, const ngx_module_t *module);
+extern void ngx_http_keyless_macro_ngx_queue_init(ngx_queue_t *q);
+extern void ngx_http_keyless_bitfield_ngx_url_t_no_resolve(ngx_url_t *u);
 
 // -*- mode: c;-*-

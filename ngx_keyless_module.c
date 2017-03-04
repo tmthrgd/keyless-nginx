@@ -20,10 +20,7 @@
 #define NGX_HTTP_KEYLESS_PAD_TO 1024
 
 extern void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
-static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
-
-extern int ngx_http_keyless_select_certificate_cb(const SSL_CLIENT_HELLO *client_hello);
-extern int ngx_http_keyless_cert_cb(ngx_ssl_conn_t *ssl_conn, void *data);
+extern char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
 
 static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 static void ngx_http_keyless_socket_read_udp_handler(ngx_event_t *rev);
@@ -35,7 +32,6 @@ static void ngx_http_keyless_cleanup_timer_handler(void *data);
 extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
 
 int ngx_http_keyless_ctx_conf_index = -1;
-int ngx_http_keyless_ssl_conn_index = -1;
 
 static ngx_command_t ngx_http_keyless_module_commands[] = {
 	{ ngx_string("keyless_ssl"),
@@ -90,95 +86,6 @@ ngx_module_t ngx_http_keyless_module = {
 	NULL,                             /* exit master */
 	NGX_MODULE_V1_PADDING
 };
-
-static char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
-{
-	const ngx_http_keyless_srv_conf_t *prev = parent;
-	ngx_http_keyless_srv_conf_t *conf = child;
-
-	ngx_http_ssl_srv_conf_t *ssl;
-	ngx_url_t u;
-
-	ngx_conf_merge_str_value(conf->address, prev->address, "");
-	ngx_conf_merge_msec_value(conf->timeout, prev->timeout, 250);
-	ngx_conf_merge_value(conf->fallback, prev->fallback, 1);
-
-	if (!conf->address.len || ngx_strcmp(conf->address.data, "off") == 0) {
-		return NGX_CONF_OK;
-	}
-
-	ssl = ngx_http_conf_get_module_srv_conf(cf, ngx_http_ssl_module);
-	if (!ssl || !ssl->ssl.ctx) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "no SSL configured for the server");
-		return NGX_CONF_ERROR;
-	}
-
-	ngx_memzero(&u, sizeof(ngx_url_t));
-	u.url = conf->address;
-	u.default_port = 2407;
-	u.no_resolve = 1;
-
-	if (u.url.len >= 4 && ngx_strncasecmp(u.url.data, (u_char *)"udp:", 4) == 0) {
-		u.url.data += 4;
-		u.url.len -= 4;
-
-		conf->pc.type = SOCK_DGRAM;
-	} else if (u.url.len >= 4 && ngx_strncasecmp(u.url.data, (u_char *)"tcp:", 4) == 0) {
-		u.url.data += 4;
-		u.url.len -= 4;
-	}
-
-	if (ngx_parse_url(cf->pool, &u) != NGX_OK || !u.addrs || !u.addrs[0].sockaddr) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "invalid URL given in ether directive");
-		return NGX_CONF_ERROR;
-	}
-
-	conf->pc.sockaddr = u.addrs[0].sockaddr;
-	conf->pc.socklen = u.addrs[0].socklen;
-	conf->pc.name = &conf->address;
-
-	conf->pc.get = ngx_event_get_peer;
-	conf->pc.log = cf->log;
-	conf->pc.log_error = NGX_ERROR_ERR;
-
-	if (RAND_bytes((uint8_t *)&conf->id, sizeof(conf->id)) != 1) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "RAND_bytes(...) failed");
-		return NGX_CONF_ERROR;
-	}
-
-	conf->pool = cf->cycle->pool;
-
-	ngx_queue_init(&conf->recv_ops);
-	ngx_queue_init(&conf->send_ops);
-
-	SSL_CTX_set_select_certificate_cb(ssl->ssl.ctx, ngx_http_keyless_select_certificate_cb);
-	SSL_CTX_set_cert_cb(ssl->ssl.ctx, ngx_http_keyless_cert_cb, NULL);
-
-	if (ngx_http_keyless_ctx_conf_index == -1) {
-		ngx_http_keyless_ctx_conf_index = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
-		if (ngx_http_keyless_ctx_conf_index == -1) {
-			ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
-				"SSL_CTX_get_ex_new_index(...) failed");
-			return NGX_CONF_ERROR;
-		}
-	}
-
-	if (ngx_http_keyless_ssl_conn_index == -1) {
-		ngx_http_keyless_ssl_conn_index = SSL_get_ex_new_index(0, NULL, NULL, NULL, NULL);
-		if (ngx_http_keyless_ssl_conn_index == -1) {
-			ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
-				"SSL_get_ex_new_index(...) failed");
-			return NGX_CONF_ERROR;
-		}
-	}
-
-	if (!SSL_CTX_set_ex_data(ssl->ssl.ctx, ngx_http_keyless_ctx_conf_index, conf)) {
-		ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "SSL_CTX_set_ex_data(...) failed");
-		return NGX_CONF_ERROR;
-	}
-
-	return NGX_CONF_OK;
-}
 
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
 		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
