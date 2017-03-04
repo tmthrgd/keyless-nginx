@@ -131,6 +131,7 @@ fn main() {
 		.opaque_type("ngx_module_t")
 		.opaque_type("ngx_rbtree_t")
 		.opaque_type("ngx_rbtree_node_t")
+		.whitelisted_type("ngx_http_module_t")
 		// rust_nginx.h
 		.whitelisted_function("^ngx_http_keyless_macro_.*")
 		.whitelisted_function("^ngx_http_keyless_bitfield_.*")

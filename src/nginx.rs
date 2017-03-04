@@ -4,8 +4,8 @@ include!(concat!(env!("OUT_DIR"), "/nginx.rs"));
 
 pub const NGX_CONF_UNSET_MSEC: ::std::os::raw::c_int = -1;
 
-pub const NGX_CONF_OK: *const u8 = 0 as *const u8;
-pub const NGX_CONF_ERROR: *const u8 = !0 as *const u8;
+pub const NGX_CONF_OK: *mut i8 = 0 as *mut i8;
+pub const NGX_CONF_ERROR: *mut i8 = !0 as *mut i8;
 
 pub use self::ngx_connection_log_error_e::*;
 

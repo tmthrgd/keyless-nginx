@@ -64,15 +64,30 @@ pub static mut ngx_http_keyless_ctx_conf_index: std::os::raw::c_int = -1;
 
 static mut SSL_CONN_INDEX: std::os::raw::c_int = -1;
 
+#[no_mangle]
+#[allow(non_upper_case_globals)]
+#[allow(dead_code)]
+pub static ngx_http_keyless_module_ctx: nginx::ngx_http_module_t = nginx::ngx_http_module_t {
+	preconfiguration: None,
+	postconfiguration: None,
+
+	create_main_conf: None,
+	init_main_conf: None,
+
+	create_srv_conf: Some(create_srv_conf),
+	merge_srv_conf: Some(merge_srv_conf),
+
+	create_loc_conf: None,
+	merge_loc_conf: None,
+};
+
 pub fn get_conn(ssl: *const ssl::SSL) -> *mut keyless::ngx_http_keyless_conn_t {
 	unsafe {
 		ssl::SSL_get_ex_data(ssl, SSL_CONN_INDEX) as *mut keyless::ngx_http_keyless_conn_t
 	}
 }
 
-#[no_mangle]
-pub extern "C" fn ngx_http_keyless_create_srv_conf(cf: *mut nginx::ngx_conf_t)
-                                                   -> *mut std::os::raw::c_void {
+pub extern "C" fn create_srv_conf(cf: *mut nginx::ngx_conf_t) -> *mut std::os::raw::c_void {
 	let kcscf = unsafe {
 		nginx::ngx_pcalloc((*cf).pool,
 		                   mem::size_of::<keyless::ngx_http_keyless_srv_conf_t>())
@@ -93,11 +108,10 @@ pub extern "C" fn ngx_http_keyless_create_srv_conf(cf: *mut nginx::ngx_conf_t)
 	kcscf as *mut std::os::raw::c_void
 }
 
-#[no_mangle]
-pub extern "C" fn ngx_http_keyless_merge_srv_conf(cf: *const nginx::ngx_conf_t,
-                                                  parent: *const std::os::raw::c_void,
-                                                  child: *mut std::os::raw::c_void)
-                                                  -> *const u8 {
+pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
+                                 parent: *mut std::os::raw::c_void,
+                                 child: *mut std::os::raw::c_void)
+                                 -> *mut i8 {
 	let prev = parent as *const keyless::ngx_http_keyless_srv_conf_t;
 	let conf = child as *mut keyless::ngx_http_keyless_srv_conf_t;
 

@@ -58,19 +58,7 @@ static ngx_command_t ngx_http_keyless_module_commands[] = {
 	ngx_null_command
 };
 
-ngx_http_module_t ngx_http_keyless_module_ctx = {
-	NULL,                             /* preconfiguration */
-	NULL,                             /* postconfiguration */
-
-	NULL,                             /* create main configuration */
-	NULL,                             /* init main configuration */
-
-	ngx_http_keyless_create_srv_conf, /* create server configuration */
-	ngx_http_keyless_merge_srv_conf,  /* merge server configuration */
-
-	NULL,                             /* create location configuration */
-	NULL                              /* merge location configuration */
-};
+extern ngx_http_module_t ngx_http_keyless_module_ctx;
 
 ngx_module_t ngx_http_keyless_module = {
 	NGX_MODULE_V1,
