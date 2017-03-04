@@ -24,12 +24,8 @@ mod get_cert;
 use std::ptr;
 use std::mem;
 use std::slice;
-use std::io::Cursor;
 
 extern crate libc;
-
-extern crate byteorder;
-use byteorder::{BigEndian, ReadBytesExt};
 
 #[macro_use]
 extern crate enum_primitive;
@@ -40,6 +36,8 @@ use num::FromPrimitive;
 #[macro_use]
 extern crate nom;
 use nom::IResult;
+
+named!(parse_cipher_suites<Vec<u16>>, many0!(nom::be_u16));
 
 #[allow(dead_code)]
 mod error;
@@ -250,13 +248,14 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 
 	let cipher_list = unsafe { ssl::SSL_get_ciphers((*client_hello).ssl) };
 
-	let mut cipher_suites = Cursor::new(unsafe {
+	for cipher_suite in match parse_cipher_suites(unsafe {
 		slice::from_raw_parts((*client_hello).cipher_suites,
 		                      (*client_hello).cipher_suites_len)
-	});
-
-	while let Some(cipher_suite) = cipher_suites.read_u16::<BigEndian>().ok() {
-		let cipher = unsafe { ssl::SSL_get_cipher_by_value(cipher_suite) };
+	}) {
+		IResult::Done(i, ref v) if i.is_empty() => v,
+		_ => return -1,
+	} {
+		let cipher = unsafe { ssl::SSL_get_cipher_by_value(*cipher_suite) };
 		if !cipher.is_null() &&
 		   unsafe {
 			ssl::SSL_CIPHER_is_ECDSA(cipher) == 1 &&
