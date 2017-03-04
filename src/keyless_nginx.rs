@@ -426,14 +426,12 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	let ret = get_cert::parse(unsafe {
 		slice::from_raw_parts(ssl::CBS_data(&payload), ssl::CBS_len(&payload))
 	});
-	if !ret.is_done() {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
-		return 0;
-	};
-	let (rest, res) = ret.unwrap();
-	if !rest.is_empty() {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
-		return 0;
+	let res = match ret {
+		IResult::Done(i, ref v) if i.is_empty() => v,
+		_ => {
+			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
+			return 0;
+		}
 	};
 
 	let mut leaf = ssl::CBS::default();
@@ -462,7 +460,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		return 0;
 	}
 
-	for cert in res.chain {
+	for &cert in &res.chain {
 		if unsafe { ssl::SSL_add_chain_cert_ASN1(ssl, cert.as_ptr(), cert.len()) } != 1 {
 			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 			return 0;
