@@ -13,4 +13,6 @@ pub use self::ngx_http_keyless_macro_ngx_ssl_get_connection as ngx_ssl_get_conne
 pub use self::ngx_http_keyless_macro_ngx_http_conf_get_module_srv_conf
 	as ngx_http_conf_get_module_srv_conf;
 pub use self::ngx_http_keyless_macro_ngx_queue_init as ngx_queue_init;
+pub use self::ngx_http_keyless_macro_ngx_queue_remove as ngx_queue_remove;
 pub use self::ngx_http_keyless_bitfield_ngx_url_t_no_resolve as ngx_url_set_no_resolve;
+pub use self::ngx_http_keyless_bitfield_ngx_connection_t_error as ngx_connection_set_error;

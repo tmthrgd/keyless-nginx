@@ -667,3 +667,55 @@ pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 	};
 	msg.as_ptr()
 }
+
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_event_t) {
+	let c = unsafe { (*wev).data as *mut nginx::ngx_connection_t };
+	let conf = unsafe { (*c).data as *mut keyless::ngx_http_keyless_srv_conf_t };
+
+	let send = unsafe { (*c).send }.unwrap();
+
+	loop {
+		let op = unsafe {
+			keyless::ngx_http_keyless_helper_send_queue_head(&mut (*conf).send_ops)
+		};
+		if op.is_null() {
+			break;
+		};
+
+		while unsafe { (*op).send.pos < (*op).send.last } {
+			let size = unsafe {
+				send(c,
+				     (*op).send.pos,
+				     (*op).send.last.offset(-((*op).send.pos as isize)) as
+				     usize) as isize
+			};
+			if size > 0 {
+				unsafe { (*op).send.pos = (*op).send.pos.offset(size) };
+
+				if unsafe { (*conf).pc.type_ == libc::SOCK_DGRAM } {
+					break;
+				};
+			} else if size == 0 || size == nginx::NGX_AGAIN as isize {
+				return;
+			} else {
+				unsafe { nginx::ngx_connection_set_error(c) };
+				return;
+			}
+		}
+
+		unsafe { nginx::ngx_queue_remove(&mut (*op).send_queue) };
+
+		unsafe {
+			ssl::OPENSSL_cleanse((*op).send.start as *mut std::os::raw::c_void,
+			                     (*op).send.end.offset(-((*op).send.start as isize)) as
+			                     usize);
+			ssl::OPENSSL_free((*op).send.start as *mut libc::c_void);
+
+			(*op).send.start = ptr::null_mut();
+			(*op).send.pos = ptr::null_mut();
+			(*op).send.last = ptr::null_mut();
+			(*op).send.end = ptr::null_mut();
+		};
+	}
+}

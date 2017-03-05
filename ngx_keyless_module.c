@@ -24,7 +24,7 @@ extern char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void 
 
 static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 static void ngx_http_keyless_socket_read_udp_handler(ngx_event_t *rev);
-static void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
+extern void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
 
 static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev);
 static void ngx_http_keyless_cleanup_timer_handler(void *data);
@@ -761,53 +761,12 @@ cleanup:
 	ngx_pfree(c->pool, recv.start);
 }
 
-static void ngx_http_keyless_socket_write_handler(ngx_event_t *wev)
-{
-	ngx_connection_t *c;
-	ngx_http_keyless_srv_conf_t *conf;
-	ngx_http_keyless_op_t *op;
-	ngx_queue_t *q;
-	ssize_t size;
-
-	c = wev->data;
-	conf = c->data;
-
-	while (!ngx_queue_empty(&conf->send_ops)) {
-		q = ngx_queue_head(&conf->send_ops);
-		op = ngx_queue_data(q, ngx_http_keyless_op_t, send_queue);
-
-		while (op->send.pos < op->send.last) {
-			size = c->send(c, op->send.pos, op->send.last - op->send.pos);
-			if (size > 0) {
-				op->send.pos += size;
-
-				if (conf->pc.type == SOCK_DGRAM) {
-					break;
-				}
-			} else if (size == 0 || size == NGX_AGAIN) {
-				return;
-			} else {
-				c->error = 1;
-				return;
-			}
-		}
-
-		ngx_queue_remove(&op->send_queue);
-
-		if (op->send.pos != op->send.last) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0, "keyless send truncated");
-		} else {
-			ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0, "keyless send done");
-		}
-
-		OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
-		OPENSSL_free(op->send.start);
-
-		op->send.start = NULL;
-		op->send.pos = NULL;
-		op->send.last = NULL;
-		op->send.end = NULL;
+extern ngx_http_keyless_op_t *ngx_http_keyless_helper_send_queue_head(ngx_queue_t *q) {
+	if (ngx_queue_empty(q)) {
+		return NULL;
 	}
+
+	return ngx_queue_data(ngx_queue_head(q), ngx_http_keyless_op_t, send_queue);
 }
 
 static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev)

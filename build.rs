@@ -91,6 +91,7 @@ fn main() {
 		.whitelisted_function("RAND_bytes")
 		.whitelisted_function("^SSL(_CTX)?_get_ex_new_index$")
 		.whitelisted_function("SSL_CTX_set_ex_data")
+		.whitelisted_function("OPENSSL_cleanse")
 		// rust_openssl.h
 		.header("rust_openssl.h")
 		.generate()
@@ -101,13 +102,10 @@ fn main() {
 		// ngx_connection_t
 		.hide_type("^SSL.*")
 		.opaque_type("ngx_listening_t")
-		.opaque_type("ngx_buf_t")
 		.opaque_type("ngx_thread_task_t")
 		.opaque_type("ngx_file_t")
 		.whitelisted_type("ngx_connection_t")
 		// ngx_keyless_module.h
-		.opaque_type("ngx_event_t")
-		.whitelisted_type("ngx_event_t")
 		.opaque_type("ngx_queue_t")
 		.whitelisted_type("ngx_queue_t")
 		.whitelisted_type("ngx_peer_connection_t")
@@ -132,6 +130,8 @@ fn main() {
 		.opaque_type("ngx_rbtree_t")
 		.opaque_type("ngx_rbtree_node_t")
 		.whitelisted_type("ngx_http_module_t")
+		.whitelisted_type("ngx_event_t")
+		.whitelisted_var("NGX_AGAIN")
 		// rust_nginx.h
 		.whitelisted_function("^ngx_http_keyless_macro_.*")
 		.whitelisted_function("^ngx_http_keyless_bitfield_.*")

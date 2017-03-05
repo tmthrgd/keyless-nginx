@@ -12,6 +12,14 @@ extern void ngx_http_keyless_macro_ngx_queue_init(ngx_queue_t *q) {
 	ngx_queue_init(q);
 }
 
+extern void ngx_http_keyless_macro_ngx_queue_remove(ngx_queue_t *q) {
+	ngx_queue_remove(q);
+}
+
 extern void ngx_http_keyless_bitfield_ngx_url_t_no_resolve(ngx_url_t *u) {
 	u->no_resolve = 1;
+}
+
+extern void ngx_http_keyless_bitfield_ngx_connection_t_error(ngx_connection_t *c) {
+	c->error = 1;
 }
