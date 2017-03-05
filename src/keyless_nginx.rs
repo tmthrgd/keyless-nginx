@@ -675,14 +675,9 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 
 	let send = unsafe { (*c).send }.unwrap();
 
-	loop {
-		let op = unsafe {
-			keyless::ngx_http_keyless_helper_send_queue_head(&mut (*conf).send_ops)
-		};
-		if op.is_null() {
-			break;
-		};
-
+	while let Some(op) = unsafe {
+		keyless::ngx_http_keyless_helper_send_queue_head(&mut (*conf).send_ops).as_mut()
+	} {
 		while unsafe { (*op).send.pos < (*op).send.last } {
 			let size = unsafe {
 				send(c,
