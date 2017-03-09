@@ -25,6 +25,8 @@ mod get_cert;
 use std::ptr;
 use std::mem;
 use std::slice;
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
 
 extern crate libc;
 
@@ -141,10 +143,9 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	};
 
 	if conf.address.len == 0 ||
-	   unsafe {
-		libc::strcmp(conf.address.data as *const i8,
-		             "off\0".as_ptr() as *const i8) == 0
-	} {
+	   OsStr::from_bytes(unsafe {
+		slice::from_raw_parts(conf.address.data, conf.address.len)
+	}) == "off" {
 		return nginx::NGX_CONF_OK;
 	};
 
