@@ -440,10 +440,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		}
 	};
 
-	let mut leaf = ssl::CBS::default();
-	unsafe { ssl::CBS_init(&mut leaf, res.leaf.as_ptr(), res.leaf.len()) };
-
-	let public_key = ssl::ssl_cert_parse_pubkey(&leaf);
+	let public_key = ssl::ssl_cert_parse_pubkey(res.leaf);
 	if public_key.is_null() {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
 		return 0;
