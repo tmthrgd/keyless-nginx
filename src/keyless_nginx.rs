@@ -160,22 +160,6 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	u.default_port = 2407;
 	unsafe { nginx::ngx_url_set_no_resolve(&mut u) };
 
-	if u.url.len >= 4 &&
-	   unsafe {
-		libc::strncmp(u.url.data as *const i8, "udp:\0".as_ptr() as *const i8, 4)
-	} == 0 {
-		u.url.data = unsafe { u.url.data.offset(4) };
-		u.url.len -= 4;
-
-		conf.pc.type_ = libc::SOCK_DGRAM;
-	} else if u.url.len >= 4 &&
-	          unsafe {
-		libc::strncmp(u.url.data as *const i8, "tcp:\0".as_ptr() as *const i8, 4)
-	} == 0 {
-		u.url.data = unsafe { u.url.data.offset(4) };
-		u.url.len -= 4;
-	};
-
 	if unsafe { nginx::ngx_parse_url((*cf).pool, &mut u) } != nginx::NGX_OK as isize ||
 	   u.addrs.is_null() {
 		return nginx::NGX_CONF_ERROR;
@@ -697,10 +681,6 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 			};
 			if size > 0 {
 				op.send.pos = unsafe { op.send.pos.offset(size) };
-
-				if conf.pc.type_ == libc::SOCK_DGRAM {
-					break;
-				};
 			} else if size == 0 || size == nginx::NGX_AGAIN as isize {
 				return;
 			} else {
