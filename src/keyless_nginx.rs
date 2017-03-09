@@ -350,16 +350,11 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl) };
 
 	let conf = unsafe {
-		(ssl::SSL_CTX_get_ex_data(ctx, ngx_http_keyless_ctx_conf_index) as
-		 *mut keyless::ngx_http_keyless_srv_conf_t)
-			.as_ref()
-	};
-	if conf.is_none() {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
-		return 0;
-	};
-
-	let conf = conf.unwrap();
+			(ssl::SSL_CTX_get_ex_data(ctx, ngx_http_keyless_ctx_conf_index) as
+			 *mut keyless::ngx_http_keyless_srv_conf_t)
+				.as_ref()
+		}
+		.unwrap();
 
 	let mut payload = ssl::CBS::default();
 
