@@ -11,8 +11,8 @@ pub use self::ssl_private_key_result_t::*;
 // this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c
 pub fn ssl_cert_parse_pubkey(in_cbs: &CBS) -> *mut EVP_PKEY {
 	let mut buf = *in_cbs;
-	let mut toplevel: CBS = [0; 2];
-	let mut tbs_cert: CBS = [0; 2];
+	let mut toplevel = CBS::default();
+	let mut tbs_cert = CBS::default();
 
 	if unsafe {
 		CBS_get_asn1(&mut buf, &mut toplevel, CBS_ASN1_SEQUENCE) == 1 &&
