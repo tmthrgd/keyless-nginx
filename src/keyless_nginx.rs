@@ -156,7 +156,7 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 		return nginx::NGX_CONF_ERROR;
 	};
 
-	let mut u: nginx::ngx_url_t = nginx::ngx_url_t::default();
+	let mut u = nginx::ngx_url_t::default();
 	u.url = conf.address;
 	u.default_port = 2407;
 	unsafe { nginx::ngx_url_set_no_resolve(&mut u) };
@@ -289,10 +289,10 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		                                          &mut extension_data,
 		                                          &mut extension_len)
 	} == 1 {
-		let mut extension: ssl::CBS = ssl::CBS::default();
+		let mut extension = ssl::CBS::default();
 		unsafe { ssl::CBS_init(&mut extension, extension_data, extension_len) };
 
-		let mut sig_algs: ssl::CBS = ssl::CBS::default();
+		let mut sig_algs = ssl::CBS::default();
 
 		let cln = unsafe { nginx::ngx_pool_cleanup_add((*c).pool, 0).as_mut() };
 		if cln.is_none() ||
@@ -361,7 +361,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 
 	let conf = conf.unwrap();
 
-	let mut payload: ssl::CBS = ssl::CBS::default();
+	let mut payload = ssl::CBS::default();
 
 	match unsafe { keyless::ngx_http_keyless_operation_complete(op, &mut payload) } {
 		ssl::ssl_private_key_failure => {
@@ -618,7 +618,7 @@ pub extern "C" fn key_complete(ssl_conn: *mut ssl::SSL,
 
 	let conn = conn.unwrap();
 
-	let mut payload: ssl::CBS = ssl::CBS::default();
+	let mut payload = ssl::CBS::default();
 
 	let mut rc = unsafe { keyless::ngx_http_keyless_operation_complete(conn.op, &mut payload) };
 	match rc {
