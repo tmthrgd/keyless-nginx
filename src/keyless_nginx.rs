@@ -41,6 +41,7 @@ extern crate nom;
 use nom::IResult;
 
 named!(parse_cipher_suites<Vec<u16>>, many0!(nom::be_u16));
+named!(parse_tls_ext, length_bytes!(nom::be_u16));
 
 #[allow(dead_code)]
 mod error;
@@ -289,27 +290,28 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		                                          &mut extension_data,
 		                                          &mut extension_len)
 	} == 1 {
-		let mut extension = ssl::CBS::default();
-		unsafe { ssl::CBS_init(&mut extension, extension_data, extension_len) };
+		let sig_algs_res = parse_tls_ext(unsafe {
+			slice::from_raw_parts(extension_data, extension_len)
+		});
+		let sig_algs = match sig_algs_res {
+			IResult::Done(i, ref v) if i.is_empty() && !v.is_empty() &&
+			                           v.len() % 2 == 0 => v,
+			_ => return -1,
+		};
 
-		let mut sig_algs = ssl::CBS::default();
-
-		let cln = unsafe { nginx::ngx_pool_cleanup_add((*c).pool, 0).as_mut() };
-		if cln.is_none() ||
-		   unsafe {
-			ssl::CBS_get_u16_length_prefixed(&mut extension, &mut sig_algs) != 1 ||
-			ssl::CBS_len(&sig_algs) == 0 || ssl::CBS_len(&extension) != 0 ||
-			ssl::CBS_len(&sig_algs) % 2 != 0 ||
-			ssl::CBS_stow(&sig_algs,
-			              &mut conn.get_cert.sig_algs,
-			              &mut conn.get_cert.sig_algs_len) != 1
-		} {
+		conn.get_cert.sig_algs =
+			unsafe { nginx::ngx_pcalloc((*c).pool, sig_algs.len()) } as *mut u8;
+		if conn.get_cert.sig_algs.is_null() {
 			return -1;
 		};
 
-		let cln = cln.unwrap();
-		cln.handler = unsafe { mem::transmute(ssl::OPENSSL_free as *const ()) };
-		cln.data = conn.get_cert.sig_algs as *mut std::os::raw::c_void;
+		unsafe {
+			ptr::copy_nonoverlapping(sig_algs.as_ptr(),
+			                         conn.get_cert.sig_algs,
+			                         sig_algs.len())
+		};
+
+		conn.get_cert.sig_algs_len = sig_algs.len();
 	};
 
 	1

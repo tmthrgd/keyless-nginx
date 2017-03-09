@@ -121,7 +121,6 @@ fn main() {
 		.whitelisted_type("ngx_atomic_uint_t")
 		// keyless_nginx.rs
 		.whitelisted_type("ngx_pool_cleanup_t")
-		.whitelisted_function("ngx_pool_cleanup_add")
 		.whitelisted_function("ngx_pcalloc")
 		.opaque_type("ngx_pool_t")
 		.opaque_type("ngx_log_t")
