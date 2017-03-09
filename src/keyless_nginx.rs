@@ -355,9 +355,10 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		return if op.is_null() { 0 } else { -1 };
 	};
 
-	let conf = unsafe {
-		ssl::SSL_CTX_get_ex_data(ssl::SSL_get_SSL_CTX(ssl), ngx_http_keyless_ctx_conf_index)
-	} as *mut keyless::ngx_http_keyless_srv_conf_t;
+	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl) };
+
+	let conf = unsafe { ssl::SSL_CTX_get_ex_data(ctx, ngx_http_keyless_ctx_conf_index) } as
+	           *mut keyless::ngx_http_keyless_srv_conf_t;
 	if conf.is_null() {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 		return 0;
@@ -469,13 +470,13 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 
 	let mut certs = Vec::new();
 	certs.push(unsafe {
-		ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), ptr::null_mut()) as
+		ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), (*ctx).pool) as
 		*const ssl::CRYPTO_BUFFER
 	});
 
 	for &cert in &res.chain {
 		certs.push(unsafe {
-			ssl::CRYPTO_BUFFER_new(cert.as_ptr(), cert.len(), ptr::null_mut()) as
+			ssl::CRYPTO_BUFFER_new(cert.as_ptr(), cert.len(), (*ctx).pool) as
 			*const ssl::CRYPTO_BUFFER
 		});
 	}

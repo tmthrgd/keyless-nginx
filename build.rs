@@ -54,7 +54,16 @@ fn main() {
 		//  SSL
 		.whitelisted_type("SSL")
 		//  SSL_CTX
-		.opaque_type("SSL_CTX")
+		.opaque_type("CRYPTO_MUTEX")
+		.opaque_type("ssl_cipher_preference_list_st")
+		.opaque_type("^X509_STORE(_CTX)?$")
+		.opaque_type("ssl_session_st")
+		.opaque_type("X509")
+		.opaque_type("X509_VERIFY_PARAM")
+		.opaque_type("EVP_CIPHER_CTX")
+		.opaque_type("HMAC_CTX")
+		.opaque_type("timeval")
+		.opaque_type("CRYPTO_EX_DATA")
 		.whitelisted_type("SSL_CTX")
 		// keyless_nginx.rs
 		.whitelisted_function("SSL_[gs]et_ex_data")
