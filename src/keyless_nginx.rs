@@ -277,7 +277,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 			conn.get_cert.ecdsa_cipher = 1;
 			break;
 		};
-	};
+	}
 
 	let mut extension_data: *const u8 = ptr::null();
 	let mut extension_len: usize = 0;
@@ -680,7 +680,7 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 				unsafe { nginx::ngx_connection_set_error(c) };
 				return;
 			};
-		};
+		}
 
 		unsafe { nginx::ngx_queue_remove(&mut op.send_queue) };
 
@@ -695,5 +695,5 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 		op.send.pos = ptr::null_mut();
 		op.send.last = ptr::null_mut();
 		op.send.end = ptr::null_mut();
-	};
+	}
 }
