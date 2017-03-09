@@ -181,7 +181,7 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 
 	if unsafe { ssl::RAND_bytes(mem::transmute(&mut conf.id), 8) } != 1 {
 		return nginx::NGX_CONF_ERROR;
-	}
+	};
 
 	conf.pool = unsafe { (*(*cf).cycle).pool };
 
@@ -276,8 +276,8 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		} {
 			conn.get_cert.ecdsa_cipher = 1;
 			break;
-		}
-	}
+		};
+	};
 
 	let mut extension_data: *const u8 = ptr::null();
 	let mut extension_len: usize = 0;
@@ -310,7 +310,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		let cln = cln.unwrap();
 		cln.handler = unsafe { mem::transmute(ssl::OPENSSL_free as *const ()) };
 		cln.data = conn.get_cert.sig_algs as *mut std::os::raw::c_void;
-	}
+	};
 
 	1
 }
@@ -380,12 +380,12 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		}
 		ssl::ssl_private_key_retry => return -1,
 		ssl::ssl_private_key_success => (),
-	}
+	};
 
 	if unsafe { ssl::CBS_len(&payload) } == 0 || op.ski.is_null() {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
 		return 0;
-	}
+	};
 
 	unsafe {
 		ptr::copy_nonoverlapping(op.ski,
@@ -419,7 +419,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	} != 1 {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
 		return 0;
-	}
+	};
 
 	if !op.sct_list.is_null() &&
 	   unsafe {
@@ -427,7 +427,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	} != 1 {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
 		return 0;
-	}
+	};
 
 	let ret = get_cert::parse(unsafe {
 		slice::from_raw_parts(ssl::CBS_data(&payload), ssl::CBS_len(&payload))
@@ -444,14 +444,14 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	if public_key.is_null() {
 		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
 		return 0;
-	}
+	};
 
 	match unsafe { ssl::EVP_PKEY_id(public_key) as u32 } {
 		ssl::EVP_PKEY_RSA => conn.key.type_ = ssl::NID_rsaEncryption as i32,
 		ssl::EVP_PKEY_EC => conn.key.type_ = unsafe { ssl::EC_GROUP_get_curve_name(
 			ssl::EC_KEY_get0_group(ssl::EVP_PKEY_get0_EC_KEY(public_key))) },
 		_ => (),
-	}
+	};
 
 	conn.key.sig_len = unsafe { ssl::EVP_PKEY_size(public_key) } as usize;
 
@@ -634,7 +634,7 @@ pub extern "C" fn key_complete(ssl_conn: *mut ssl::SSL,
 			};
 		}
 		ssl::ssl_private_key_failure => (),
-	}
+	};
 
 	unsafe { keyless::ngx_http_keyless_cleanup_operation(conn.op) };
 	rc
@@ -684,8 +684,8 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 			} else {
 				unsafe { nginx::ngx_connection_set_error(c) };
 				return;
-			}
-		}
+			};
+		};
 
 		unsafe { nginx::ngx_queue_remove(&mut op.send_queue) };
 
@@ -700,5 +700,5 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 		op.send.pos = ptr::null_mut();
 		op.send.last = ptr::null_mut();
 		op.send.end = ptr::null_mut();
-	}
+	};
 }
