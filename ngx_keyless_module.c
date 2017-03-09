@@ -158,35 +158,6 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	switch (c->sockaddr->sa_family) {
-#if NGX_HAVE_INET6
-		case AF_INET6:
-			sin6 = (const struct sockaddr_in6 *)c->sockaddr;
-
-			ip_len = 16;
-			ip = (const uint8_t *)&sin6->sin6_addr.s6_addr[0];
-			break;
-#endif /* NGX_HAVE_INET6 */
-		case AF_INET:
-			sin = (const struct sockaddr_in *)c->sockaddr;
-
-			ip_len = 4;
-			ip = (const uint8_t *)&sin->sin_addr.s_addr;
-			break;
-		default:
-			ip_len = 0;
-			break;
-	}
-
-	if (ip_len
-		// client ip tag
-		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_CLIENT_IP)
-			|| !CBB_add_u16_length_prefixed(&payload, &child)
-			|| !CBB_add_bytes(&child, ip, ip_len))) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
-		goto error;
-	}
-
 	if (ngx_connection_local_sockaddr(c, NULL, 0) == NGX_OK) {
 		switch (c->local_sockaddr->sa_family) {
 #if NGX_HAVE_INET6
