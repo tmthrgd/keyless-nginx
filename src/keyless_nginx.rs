@@ -435,11 +435,6 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		return 0;
 	}
 
-	unsafe {
-		ssl::SSL_certs_clear(ssl);
-		ssl::SSL_set_private_key_method(ssl, &KEY_METHOD);
-	};
-
 	let ret = get_cert::parse(unsafe {
 		slice::from_raw_parts(ssl::CBS_data(&payload), ssl::CBS_len(&payload))
 	});
@@ -472,17 +467,26 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		ssl::EVP_PKEY_free(public_key);
 	};
 
-	if unsafe { ssl::SSL_use_certificate_ASN1(ssl, res.leaf.as_ptr(), res.leaf.len()) } != 1 {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
-		return 0;
-	}
+	let mut certs = Vec::new();
+	certs.push(unsafe {
+		ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), ptr::null_mut()) as
+		*const ssl::CRYPTO_BUFFER
+	});
 
 	for &cert in &res.chain {
-		if unsafe { ssl::SSL_add_chain_cert_ASN1(ssl, cert.as_ptr(), cert.len()) } != 1 {
-			unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
-			return 0;
-		}
+		certs.push(unsafe {
+			ssl::CRYPTO_BUFFER_new(cert.as_ptr(), cert.len(), ptr::null_mut()) as
+			*const ssl::CRYPTO_BUFFER
+		});
 	}
+
+	unsafe {
+		ssl::SSL_set_chain_and_key(ssl,
+		                           certs.as_ptr(),
+		                           certs.len(),
+		                           ptr::null_mut(),
+		                           &KEY_METHOD)
+	};
 
 	unsafe { keyless::ngx_http_keyless_cleanup_operation((*conn).op) };
 	1
