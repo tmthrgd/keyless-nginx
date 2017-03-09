@@ -471,15 +471,13 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 
 	let mut certs = Vec::new();
 	certs.push(unsafe {
-		ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), (*ctx).pool) as
-		*const ssl::CRYPTO_BUFFER
-	});
+		ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), (*ctx).pool)
+	} as *const ssl::CRYPTO_BUFFER);
 
 	for &cert in &res.chain {
 		certs.push(unsafe {
-			ssl::CRYPTO_BUFFER_new(cert.as_ptr(), cert.len(), (*ctx).pool) as
-			*const ssl::CRYPTO_BUFFER
-		});
+			ssl::CRYPTO_BUFFER_new(cert.as_ptr(), cert.len(), (*ctx).pool)
+		} as *const ssl::CRYPTO_BUFFER);
 	}
 
 	unsafe {
@@ -676,8 +674,8 @@ pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 
 #[no_mangle]
 pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_event_t) {
-	let c = unsafe { (*wev).data as *mut nginx::ngx_connection_t };
-	let conf = unsafe { (*c).data as *mut keyless::ngx_http_keyless_srv_conf_t };
+	let c = unsafe { (*wev).data } as *mut nginx::ngx_connection_t;
+	let conf = unsafe { (*c).data } as *mut keyless::ngx_http_keyless_srv_conf_t;
 
 	let send = unsafe { (*c).send }.unwrap();
 
