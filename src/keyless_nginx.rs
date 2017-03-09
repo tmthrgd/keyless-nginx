@@ -116,8 +116,8 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	let prev = parent as *const keyless::ngx_http_keyless_srv_conf_t;
 	let conf = child as *mut keyless::ngx_http_keyless_srv_conf_t;
 
-	if (unsafe { (*conf).address.data }).is_null() {
-		if (unsafe { (*prev).address.data }).is_null() {
+	if unsafe { (*conf).address.data }.is_null() {
+		if unsafe { (*prev).address.data }.is_null() {
 			unsafe {
 				(*conf).address.data = "\0".as_ptr() as *mut u8;
 				(*conf).address.len = 0;
@@ -337,7 +337,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		return 1;
 	};
 
-	if (unsafe { (*conn).op }).is_null() {
+	if unsafe { (*conn).op }.is_null() {
 		let op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
