@@ -57,8 +57,6 @@ use error::Error;
 mod opcode;
 use opcode::Op;
 
-const SESS_ID_CTX: &'static str = "keyless-HTTP";
-
 const KEY_METHOD: ssl::SSL_PRIVATE_KEY_METHOD = ssl::SSL_PRIVATE_KEY_METHOD {
 	type_: Some(key_type),
 	max_signature_len: Some(key_max_signature_len),
@@ -200,6 +198,10 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	unsafe {
 		ssl::SSL_CTX_set_select_certificate_cb((*ssl).ssl.ctx, Some(select_certificate_cb));
 		ssl::SSL_CTX_set_cert_cb((*ssl).ssl.ctx, Some(cert_cb), ptr::null_mut());
+	};
+
+	if unsafe { ssl::SSL_CTX_set_session_id_context((*ssl).ssl.ctx, ptr::null(), 0) } != 1 {
+		return nginx::NGX_CONF_ERROR;
 	};
 
 	unsafe {
@@ -395,26 +397,6 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		                         conn.ski.as_mut_ptr(),
 		                         ssl::SHA_DIGEST_LENGTH as usize)
 	};
-
-	let mut sha_ctx: ssl::SHA256_CTX = ssl::SHA256_CTX::default();
-	let mut sid_ctx: [u8; ssl::SHA256_DIGEST_LENGTH as usize] =
-		[0; ssl::SHA256_DIGEST_LENGTH as usize];
-
-	unsafe {
-		ssl::SHA256_Init(&mut sha_ctx);
-		ssl::SHA256_Update(&mut sha_ctx,
-		                   SESS_ID_CTX.as_ptr() as *const std::os::raw::c_void,
-		                   SESS_ID_CTX.len());
-		ssl::SHA256_Update(&mut sha_ctx,
-		                   ssl::CBS_data(&payload) as *const std::os::raw::c_void,
-		                   ssl::CBS_len(&payload));
-		ssl::SHA256_Final(sid_ctx.as_mut_ptr(), &mut sha_ctx);
-	};
-
-	if unsafe { ssl::SSL_set_session_id_context(ssl, sid_ctx.as_ptr(), 16) } != 1 {
-		cleanup_operation(op);
-		return 0;
-	}
 
 	if !op.ocsp_response.is_null() &&
 	   unsafe {
