@@ -609,14 +609,6 @@ store_temp:
 	}
 }
 
-extern ngx_http_keyless_op_t *ngx_http_keyless_helper_send_queue_head(ngx_queue_t *q) {
-	if (ngx_queue_empty(q)) {
-		return NULL;
-	}
-
-	return ngx_queue_data(ngx_queue_head(q), ngx_http_keyless_op_t, send_queue);
-}
-
 extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q) {
 	if (ngx_queue_prev(q) && ngx_queue_next(ngx_queue_prev(q)) == q) {
 		ngx_queue_remove(q);

@@ -193,7 +193,6 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		size_t in_len);
 extern enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_http_keyless_op_t *op, CBS *out);
 
-extern ngx_http_keyless_op_t *ngx_http_keyless_helper_send_queue_head(ngx_queue_t *q);
 extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q);
 
 // -*- mode: c;-*-

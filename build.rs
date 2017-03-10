@@ -114,7 +114,6 @@ fn main() {
 		.opaque_type("ngx_file_t")
 		.whitelisted_type("ngx_connection_t")
 		// ngx_keyless_module.h
-		.opaque_type("ngx_queue_t")
 		.whitelisted_type("ngx_queue_t")
 		.whitelisted_type("ngx_peer_connection_t")
 		.whitelisted_type("ngx_flag_t")

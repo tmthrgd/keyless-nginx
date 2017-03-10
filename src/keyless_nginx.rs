@@ -43,6 +43,12 @@ use nom::IResult;
 named!(parse_cipher_suites<Vec<u16>>, many0!(nom::be_u16));
 named!(parse_tls_ext, length_bytes!(nom::be_u16));
 
+macro_rules! offset_of {
+	($ty:ty, $field:ident) => {
+		&(*(0 as *const $ty)).$field as *const _ as usize
+	}
+}
+
 #[allow(dead_code)]
 mod error;
 use error::Error;
@@ -664,9 +670,17 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 		.unwrap();
 	let send = c.send.unwrap();
 
-	while let Some(op) = unsafe {
-		keyless::ngx_http_keyless_helper_send_queue_head(&mut conf.send_ops).as_mut()
-	} {
+	while !nginx::ngx_queue_empty(&mut conf.send_ops) {
+		let op = unsafe {
+				((nginx::ngx_queue_head(&mut conf.send_ops).unwrap() as
+				  *mut nginx::ngx_queue_t as *mut u8)
+						.offset(-(offset_of!(keyless::ngx_http_keyless_op_t,
+						         send_queue) as isize)) as
+				 *mut keyless::ngx_http_keyless_op_t)
+					.as_mut()
+			}
+			.unwrap();
+
 		while op.send.pos < op.send.last {
 			let size = unsafe {
 				send(c,
