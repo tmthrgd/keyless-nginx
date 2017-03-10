@@ -6,42 +6,6 @@
 
 #include <inttypes.h>
 
-enum {
-	// The range [0x0000, 0x0100) is for tags taken from Cloudflare's upstream.
-	// [Deprecated]: SHA256 hash of RSA public key
-	NGX_HTTP_KEYLESS_TAG_DIGEST    = 0x0001,
-	// Server Name Identifier
-	NGX_HTTP_KEYLESS_TAG_SNI       = 0x0002,
-	// Client IP Address
-	NGX_HTTP_KEYLESS_TAG_CLIENT_IP = 0x0003,
-	// SHA1 hash of Subject Key Info
-	NGX_HTTP_KEYLESS_TAG_SKI       = 0x0004,
-	// Server IP Address
-	NGX_HTTP_KEYLESS_TAG_SERVER_IP = 0x0005,
-	// Signature Algorithms
-	NGX_HTTP_KEYLESS_TAG_SIG_ALGS  = 0x0006,
-	// Request operation code (see ngx_http_keyless_operation_t)
-	NGX_HTTP_KEYLESS_TAG_OPCODE    = 0x0011,
-	// Request payload
-	NGX_HTTP_KEYLESS_TAG_PAYLOAD   = 0x0012,
-	// Padding
-	NGX_HTTP_KEYLESS_TAG_PADDING   = 0x0020,
-
-	// The range [0x0100, 0xc000) is for tags from our protocol version.
-	// The stapled OCSP response
-	NGX_HTTP_KEYLESS_TAG_OCSP_RESPONSE          = 0x0101,
-	// The SCT list to send to the client
-	NGX_HTTP_KEYLESS_TAG_SIGNED_CERT_TIMESTAMPS = 0x0102,
-	// The nonce used for NGX_HTTP_KEYLESS_OP_SEAL and NGX_HTTP_KEYLESS_OP_UNSEAL
-	NGX_HTTP_KEYLESS_TAG_NONCE                  = 0x0103,
-	// The additional data for NGX_HTTP_KEYLESS_OP_SEAL and NGX_HTTP_KEYLESS_OP_UNSEAL
-	NGX_HTTP_KEYLESS_TAG_ADDITIONAL_DATA        = 0x0104,
-
-	// The range [0xc000, 0xffff) is reserved for private tags.
-	// One iff ECDSA ciphers are supported
-	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc001,
-};
-
 typedef enum {
 	// The range [0x0000, 0x0100) is for opcodes taken from Cloudflare's upstream.
 
