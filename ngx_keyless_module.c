@@ -443,49 +443,6 @@ extern enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	}
 }
 
-extern void ngx_http_keyless_cleanup_operation(ngx_http_keyless_op_t *op)
-{
-	if (op->cln) {
-		op->cln->handler = NULL;
-	}
-
-	if (op->timer.handler) {
-		ngx_del_timer(&op->timer);
-	}
-
-	if (op->send.start) {
-		OPENSSL_cleanse(op->send.start, op->send.end - op->send.start);
-		OPENSSL_free(op->send.start);
-
-		op->send.start = NULL;
-		op->send.pos = NULL;
-		op->send.last = NULL;
-		op->send.end = NULL;
-	}
-
-	if (op->recv.start) {
-		OPENSSL_cleanse(op->recv.start, op->recv.end - op->recv.start);
-		ngx_pfree(op->conf->pool, op->recv.start);
-
-		op->recv.start = NULL;
-		op->recv.pos = NULL;
-		op->recv.last = NULL;
-		op->recv.end = NULL;
-	}
-
-	if (ngx_queue_prev(&op->recv_queue)
-		&& ngx_queue_next(ngx_queue_prev(&op->recv_queue)) == &op->recv_queue) {
-		ngx_queue_remove(&op->recv_queue);
-	}
-
-	if (ngx_queue_prev(&op->send_queue)
-		&& ngx_queue_next(ngx_queue_prev(&op->send_queue)) == &op->send_queue) {
-		ngx_queue_remove(&op->send_queue);
-	}
-
-	ngx_pfree(op->conf->pool, op);
-}
-
 static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 {
 	ngx_connection_t *c;
@@ -658,6 +615,12 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_helper_send_queue_head(ngx_queue_
 	}
 
 	return ngx_queue_data(ngx_queue_head(q), ngx_http_keyless_op_t, send_queue);
+}
+
+extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q) {
+	if (ngx_queue_prev(q) && ngx_queue_next(ngx_queue_prev(q)) == q) {
+		ngx_queue_remove(q);
+	}
 }
 
 static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev)

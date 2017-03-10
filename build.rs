@@ -139,6 +139,7 @@ fn main() {
 		.whitelisted_type("ngx_http_module_t")
 		.whitelisted_type("ngx_event_t")
 		.whitelisted_var("NGX_AGAIN")
+		.whitelisted_function("ngx_pfree")
 		// rust_nginx.h
 		.whitelisted_function("^ngx_http_keyless_macro_.*")
 		.whitelisted_function("^ngx_http_keyless_bitfield_.*")

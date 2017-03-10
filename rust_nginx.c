@@ -16,6 +16,10 @@ extern void ngx_http_keyless_macro_ngx_queue_remove(ngx_queue_t *q) {
 	ngx_queue_remove(q);
 }
 
+extern void ngx_http_keyless_macro_ngx_del_timer(ngx_event_t *ev) {
+	ngx_del_timer(ev);
+}
+
 extern void ngx_http_keyless_bitfield_ngx_url_t_no_resolve(ngx_url_t *u) {
 	u->no_resolve = 1;
 }

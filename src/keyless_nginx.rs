@@ -372,7 +372,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 				rc = 1;
 			};
 
-			unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+			cleanup_operation(op);
 			return rc;
 		}
 		ssl::ssl_private_key_retry => return -1,
@@ -380,7 +380,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	};
 
 	if unsafe { ssl::CBS_len(&payload) } == 0 || op.ski.is_null() {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+		cleanup_operation(op);
 		return 0;
 	};
 
@@ -406,7 +406,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	};
 
 	if unsafe { ssl::SSL_set_session_id_context(ssl, sid_ctx.as_ptr(), 16) } != 1 {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+		cleanup_operation(op);
 		return 0;
 	}
 
@@ -414,7 +414,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	   unsafe {
 		ssl::SSL_set_ocsp_response(ssl, op.ocsp_response, op.ocsp_response_length)
 	} != 1 {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+		cleanup_operation(op);
 		return 0;
 	};
 
@@ -422,7 +422,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	   unsafe {
 		ssl::SSL_set_signed_cert_timestamp_list(ssl, op.sct_list, op.sct_list_length)
 	} != 1 {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+		cleanup_operation(op);
 		return 0;
 	};
 
@@ -432,14 +432,14 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	let res = match ret {
 		IResult::Done(i, ref v) if i.is_empty() => v,
 		_ => {
-			unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+			cleanup_operation(op);
 			return 0;
 		}
 	};
 
 	let public_key = ssl::ssl_cert_parse_pubkey(res.leaf);
 	if public_key.is_null() {
-		unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+		cleanup_operation(op);
 		return 0;
 	};
 
@@ -475,7 +475,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		                           &KEY_METHOD)
 	};
 
-	unsafe { keyless::ngx_http_keyless_cleanup_operation(op) };
+	cleanup_operation(op);
 	1
 }
 
@@ -633,7 +633,7 @@ pub extern "C" fn key_complete(ssl_conn: *mut ssl::SSL,
 		ssl::ssl_private_key_failure => (),
 	};
 
-	unsafe { keyless::ngx_http_keyless_cleanup_operation(conn.op) };
+	cleanup_operation(unsafe { conn.op.as_mut() }.unwrap());
 	rc
 }
 
@@ -698,4 +698,54 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 		op.send.last = ptr::null_mut();
 		op.send.end = ptr::null_mut();
 	}
+}
+
+fn cleanup_operation(op: &mut keyless::ngx_http_keyless_op_t) {
+	if let Some(cln) = unsafe { op.cln.as_mut() } {
+		cln.handler = None;
+	};
+
+	if op.timer.handler.is_some() {
+		unsafe { nginx::ngx_del_timer(&mut op.timer) };
+	};
+
+	if !op.send.start.is_null() {
+		unsafe {
+			ssl::OPENSSL_cleanse(op.send.start as *mut std::os::raw::c_void,
+			                     op.send.end.offset(-(op.send.start as isize)) as
+			                     usize);
+			ssl::OPENSSL_free(op.send.start as *mut libc::c_void);
+		};
+
+		op.send.start = ptr::null_mut();
+		op.send.pos = ptr::null_mut();
+		op.send.last = ptr::null_mut();
+		op.send.end = ptr::null_mut();
+	};
+
+	if !op.recv.start.is_null() {
+		unsafe {
+			ssl::OPENSSL_cleanse(op.recv.start as *mut std::os::raw::c_void,
+			                     op.recv.end.offset(-(op.recv.start as isize)) as
+			                     usize);
+			nginx::ngx_pfree((*op.conf).pool,
+			                 op.recv.start as *mut std::os::raw::c_void);
+		};
+
+		op.recv.start = ptr::null_mut();
+		op.recv.pos = ptr::null_mut();
+		op.recv.last = ptr::null_mut();
+		op.recv.end = ptr::null_mut();
+	};
+
+	unsafe {
+		keyless::ngx_http_keyless_helper_remove_if_in_queue(&mut op.recv_queue);
+		keyless::ngx_http_keyless_helper_remove_if_in_queue(&mut op.send_queue);
+	};
+
+	unsafe {
+		nginx::ngx_pfree((*op.conf).pool,
+		                 op as *mut keyless::ngx_http_keyless_op_t as
+		                 *mut std::os::raw::c_void)
+	};
 }
