@@ -487,13 +487,48 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 	ngx_queue_t *q;
 	ngx_buf_t recv;
 	ssize_t size, n;
-	uint8_t *new_buf;
+	uint8_t header[NGX_HTTP_KEYLESS_HEADER_LENGTH], *p;
 	CBS payload;
 	uint8_t vers;
 	uint32_t length, id;
 
 	c = rev->data;
 	conf = c->data;
+
+	if (conf->tmp_recv.start) {
+		ngx_memcpy(header, conf->tmp_recv.start, NGX_HTTP_KEYLESS_HEADER_LENGTH);
+	} else {
+		p = header;
+
+		while (1) {
+			n = NGX_HTTP_KEYLESS_HEADER_LENGTH - (p - header);
+
+			size = c->recv(c, p, n);
+			if (size > 0) {
+				p += size;
+			} else if (size == 0 /*|| size == NGX_AGAIN*/) {
+				break;
+			} else {
+				c->error = 1;
+				return;
+			}
+		}
+	}
+
+	CBS_init(&payload, header, NGX_HTTP_KEYLESS_HEADER_LENGTH);
+
+	if (!CBS_get_u8(&payload, &vers)
+		|| !CBS_get_u24(&payload, &length)
+		|| !CBS_get_u32(&payload, &id)) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_*(...) failed");
+		return;
+	}
+
+	if (vers != NGX_HTTP_KEYLESS_VERSION) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "keyless receive error: %s",
+			ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH));
+		return;
+	}
 
 	if (conf->tmp_recv.start) {
 		recv = conf->tmp_recv;
@@ -503,7 +538,8 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		conf->tmp_recv.last = NULL;
 		conf->tmp_recv.end = NULL;
 	} else {
-		size = NGX_HTTP_KEYLESS_HEADER_LENGTH + NGX_HTTP_KEYLESS_PAD_TO + 4;
+		size = NGX_HTTP_KEYLESS_HEADER_LENGTH + length;
+
 		recv.start = ngx_palloc(c->pool, size);
 		if (!recv.start) {
 			ngx_log_error(NGX_LOG_ERR, c->log, 0,
@@ -514,34 +550,13 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		recv.pos = recv.start;
 		recv.last = recv.start;
 		recv.end = recv.start + size;
+
+		ngx_memcpy(recv.pos, header, NGX_HTTP_KEYLESS_HEADER_LENGTH);
+		recv.last += NGX_HTTP_KEYLESS_HEADER_LENGTH;
 	}
 
 	while (1) {
 		n = recv.end - recv.last;
-
-		/* buffer not big enough? enlarge it by twice */
-		if (n == 0) {
-			size = recv.end - recv.start;
-
-			new_buf = ngx_palloc(c->pool, size * 2);
-			if (!new_buf) {
-				ngx_log_error(NGX_LOG_ERR, c->log, 0,
-					"ngx_palloc failed to allocated new recv buffer");
-				return;
-			}
-
-			ngx_memcpy(new_buf, recv.start, size);
-
-			OPENSSL_cleanse(recv.start, size);
-			ngx_pfree(c->pool, recv.start);
-
-			recv.start = new_buf;
-			recv.pos = new_buf;
-			recv.last = new_buf + size;
-			recv.end = new_buf + size * 2;
-
-			n = recv.end - recv.last;
-		}
 
 		size = c->recv(c, recv.last, n);
 		if (size > 0) {
@@ -554,23 +569,9 @@ static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
 		}
 	}
 
-done_read:
-	CBS_init(&payload, recv.pos, recv.last - recv.pos);
-
-	if (CBS_len(&payload) < NGX_HTTP_KEYLESS_HEADER_LENGTH) {
-		goto store_temp;
-	}
-
-	if (!CBS_get_u8(&payload, &vers)
-		|| vers != NGX_HTTP_KEYLESS_VERSION
-		|| !CBS_get_u24(&payload, &length)
-		|| !CBS_get_u32(&payload, &id)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_*(...) failed or format error");
-		goto cleanup;
-	}
-
-	if (length > CBS_len(&payload)) {
-		goto store_temp;
+	if (recv.last < recv.end) {
+		conf->tmp_recv = recv;
+		return;
 	}
 
 	for (q = ngx_queue_head(&conf->recv_ops);
@@ -578,71 +579,19 @@ done_read:
 		q = ngx_queue_next(q)) {
 		op = ngx_queue_data(q, ngx_http_keyless_op_t, recv_queue);
 
-		if (op->id != id) {
-			continue;
-		}
+		if (op->id == id) {
+			ngx_queue_remove(&op->recv_queue);
 
-		ngx_queue_remove(&op->recv_queue);
-
-		if (CBS_len(&payload) > length) {
-			op->recv.start = ngx_palloc(c->pool,
-				NGX_HTTP_KEYLESS_HEADER_LENGTH + length);
-			if (!op->recv.start) {
-				ngx_log_error(NGX_LOG_ERR, c->log, 0,
-					"ngx_palloc failed to allocated recv buffer");
-				return;
-			}
-
-			op->recv.pos = op->recv.start;
-			op->recv.last = ngx_cpymem(op->recv.pos, recv.pos,
-				NGX_HTTP_KEYLESS_HEADER_LENGTH + length);
-			op->recv.end = op->recv.last;
-		} else {
 			op->recv = recv;
-		}
-
-		ngx_post_event(op->ev, &ngx_posted_events);
-
-		if (CBS_len(&payload) > length) {
-			goto process_next;
-		} else {
+			ngx_post_event(op->ev, &ngx_posted_events);
 			return;
 		}
 	}
 
 	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id: %ud", id);
 
-process_next:
-	if (CBS_len(&payload) > length) {
-		recv.pos += length;
-		goto done_read;
-	}
-
-cleanup:
 	OPENSSL_cleanse(recv.start, recv.last - recv.start);
 	ngx_pfree(c->pool, recv.start);
-	return;
-
-store_temp:
-	if (recv.pos != recv.start
-		&& recv.end - recv.start > (ssize_t)(ngx_pagesize * 4)
-		&& (recv.end - recv.start) - (recv.last - recv.pos) > (ssize_t)ngx_pagesize) {
-		conf->tmp_recv.start = ngx_palloc(c->pool, recv.last - recv.pos);
-		if (!conf->tmp_recv.start) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0,
-				"ngx_palloc failed to allocated recv buffer");
-
-			conf->tmp_recv = recv;
-			return;
-		}
-
-		conf->tmp_recv.pos = conf->tmp_recv.start;
-		conf->tmp_recv.last = ngx_cpymem(conf->tmp_recv.pos, recv.pos, recv.last - recv.pos);
-		conf->tmp_recv.end = conf->tmp_recv.last;
-		goto cleanup;
-	} else {
-		conf->tmp_recv = recv;
-	}
 }
 
 extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q) {
