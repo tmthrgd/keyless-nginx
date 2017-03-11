@@ -431,11 +431,11 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		return 0;
 	};
 
-	match unsafe { ssl::EVP_PKEY_id(public_key) as u32 } {
-		ssl::EVP_PKEY_RSA => conn.key.type_ = ssl::NID_rsaEncryption as i32,
-		ssl::EVP_PKEY_EC => conn.key.type_ = unsafe { ssl::EC_GROUP_get_curve_name(
-			ssl::EC_KEY_get0_group(ssl::EVP_PKEY_get0_EC_KEY(public_key))) },
-		_ => (),
+	conn.key.type_ = match unsafe { ssl::EVP_PKEY_id(public_key) } as u32 {
+		ssl::EVP_PKEY_RSA => ssl::NID_rsaEncryption as i32,
+		ssl::EVP_PKEY_EC => unsafe { ssl::EC_GROUP_get_curve_name(ssl::EC_KEY_get0_group(
+			ssl::EVP_PKEY_get0_EC_KEY(public_key))) },
+		_ => ssl::NID_undef as i32,
 	};
 
 	conn.key.sig_len = unsafe { ssl::EVP_PKEY_size(public_key) } as usize;
