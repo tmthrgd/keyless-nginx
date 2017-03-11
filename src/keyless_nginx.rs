@@ -687,10 +687,7 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 			ssl::OPENSSL_free(op.send.start as *mut libc::c_void);
 		};
 
-		op.send.start = ptr::null_mut();
-		op.send.pos = ptr::null_mut();
-		op.send.last = ptr::null_mut();
-		op.send.end = ptr::null_mut();
+		op.send = nginx::ngx_buf_t::default();
 	}
 }
 
@@ -750,11 +747,7 @@ pub extern "C" fn ngx_http_keyless_socket_read_handler(rev: *mut nginx::ngx_even
 	let mut recv = nginx::ngx_buf_t::default();
 	if !conf.tmp_recv.start.is_null() {
 		recv = conf.tmp_recv;
-
-		conf.tmp_recv.start = ptr::null_mut();
-		conf.tmp_recv.pos = ptr::null_mut();
-		conf.tmp_recv.last = ptr::null_mut();
-		conf.tmp_recv.end = ptr::null_mut();
+		conf.tmp_recv = nginx::ngx_buf_t::default();
 	} else {
 		let size = header.len() + (length as usize);
 
@@ -838,10 +831,7 @@ fn cleanup_operation(op: &mut keyless::ngx_http_keyless_op_t) {
 			ssl::OPENSSL_free(op.send.start as *mut libc::c_void);
 		};
 
-		op.send.start = ptr::null_mut();
-		op.send.pos = ptr::null_mut();
-		op.send.last = ptr::null_mut();
-		op.send.end = ptr::null_mut();
+		op.send = nginx::ngx_buf_t::default();
 	};
 
 	if !op.recv.start.is_null() {
