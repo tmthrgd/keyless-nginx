@@ -49,9 +49,6 @@ enum {
 	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc001,
 };
 
-extern void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
-extern char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
-
 extern void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
 extern void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 
