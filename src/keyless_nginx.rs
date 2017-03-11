@@ -455,19 +455,15 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		} as *const ssl::CRYPTO_BUFFER);
 	}
 
-	if unsafe {
+	cleanup_operation(op);
+
+	unsafe {
 		ssl::SSL_set_chain_and_key(ssl,
 		                           certs.as_ptr(),
 		                           certs.len(),
 		                           ptr::null_mut(),
 		                           &KEY_METHOD)
-	} != 1 {
-		cleanup_operation(op);
-		return 0;
-	};
-
-	cleanup_operation(op);
-	1
+	}
 }
 
 pub extern "C" fn key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
