@@ -6,6 +6,10 @@
 
 #include <inttypes.h>
 
+#define NGX_HTTP_KEYLESS_VERSION (0x80 | 1)
+
+#define NGX_HTTP_KEYLESS_HEADER_LENGTH 8
+
 typedef enum {
 	// The range [0x0000, 0x0100) is for opcodes taken from Cloudflare's upstream.
 

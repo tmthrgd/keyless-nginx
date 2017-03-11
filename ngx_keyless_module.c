@@ -11,10 +11,6 @@
 
 #include "ngx_keyless_module.h"
 
-#define NGX_HTTP_KEYLESS_VERSION (0x80 | 1)
-
-#define NGX_HTTP_KEYLESS_HEADER_LENGTH 8
-
 #define NGX_HTTP_KEYLESS_PAD_TO 1024
 
 enum {
@@ -56,8 +52,8 @@ enum {
 extern void *ngx_http_keyless_create_srv_conf(ngx_conf_t *cf);
 extern char *ngx_http_keyless_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
 
-static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 extern void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
+extern void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 
 static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev);
 static void ngx_http_keyless_cleanup_timer_handler(void *data);
@@ -477,121 +473,6 @@ extern enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 				ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_BAD_OPCODE));
 			return ssl_private_key_failure;
 	}
-}
-
-static void ngx_http_keyless_socket_read_handler(ngx_event_t *rev)
-{
-	ngx_connection_t *c;
-	ngx_http_keyless_srv_conf_t *conf;
-	ngx_http_keyless_op_t *op;
-	ngx_queue_t *q;
-	ngx_buf_t recv;
-	ssize_t size, n;
-	uint8_t header[NGX_HTTP_KEYLESS_HEADER_LENGTH], *p;
-	CBS payload;
-	uint8_t vers;
-	uint32_t length, id;
-
-	c = rev->data;
-	conf = c->data;
-
-	if (conf->tmp_recv.start) {
-		ngx_memcpy(header, conf->tmp_recv.start, NGX_HTTP_KEYLESS_HEADER_LENGTH);
-	} else {
-		p = header;
-
-		while (1) {
-			n = NGX_HTTP_KEYLESS_HEADER_LENGTH - (p - header);
-
-			size = c->recv(c, p, n);
-			if (size > 0) {
-				p += size;
-			} else if (size == 0 /*|| size == NGX_AGAIN*/) {
-				break;
-			} else {
-				c->error = 1;
-				return;
-			}
-		}
-	}
-
-	CBS_init(&payload, header, NGX_HTTP_KEYLESS_HEADER_LENGTH);
-
-	if (!CBS_get_u8(&payload, &vers)
-		|| !CBS_get_u24(&payload, &length)
-		|| !CBS_get_u32(&payload, &id)) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBS_*(...) failed");
-		return;
-	}
-
-	if (vers != NGX_HTTP_KEYLESS_VERSION) {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "keyless receive error: %s",
-			ngx_http_keyless_error_string(NGX_HTTP_KEYLESS_ERROR_VERSION_MISMATCH));
-		return;
-	}
-
-	if (conf->tmp_recv.start) {
-		recv = conf->tmp_recv;
-
-		conf->tmp_recv.start = NULL;
-		conf->tmp_recv.pos = NULL;
-		conf->tmp_recv.last = NULL;
-		conf->tmp_recv.end = NULL;
-	} else {
-		size = NGX_HTTP_KEYLESS_HEADER_LENGTH + length;
-
-		recv.start = ngx_palloc(c->pool, size);
-		if (!recv.start) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0,
-				"ngx_palloc failed to allocated recv buffer");
-			return;
-		}
-
-		recv.pos = recv.start;
-		recv.last = recv.start;
-		recv.end = recv.start + size;
-
-		ngx_memcpy(recv.pos, header, NGX_HTTP_KEYLESS_HEADER_LENGTH);
-		recv.last += NGX_HTTP_KEYLESS_HEADER_LENGTH;
-	}
-
-	while (1) {
-		n = recv.end - recv.last;
-
-		size = c->recv(c, recv.last, n);
-		if (size > 0) {
-			recv.last += size;
-		} else if (size == 0 || size == NGX_AGAIN) {
-			break;
-		} else {
-			c->error = 1;
-			return;
-		}
-	}
-
-	if (recv.last < recv.end) {
-		conf->tmp_recv = recv;
-		return;
-	}
-
-	for (q = ngx_queue_head(&conf->recv_ops);
-		q != ngx_queue_sentinel(&conf->recv_ops);
-		q = ngx_queue_next(q)) {
-		op = ngx_queue_data(q, ngx_http_keyless_op_t, recv_queue);
-
-		if (op->id == id) {
-			ngx_queue_remove(&op->recv_queue);
-
-			op->recv = recv;
-			ngx_post_event(op->ev, &ngx_posted_events);
-			return;
-		}
-	}
-
-	ngx_log_error(NGX_LOG_ERR, c->log, 0, "invalid header id: %ud", id);
-
-	OPENSSL_cleanse(recv.start, recv.last - recv.start);
-	ngx_pfree(c->pool, recv.start);
 }
 
 extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q) {

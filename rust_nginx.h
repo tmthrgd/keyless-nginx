@@ -9,6 +9,7 @@ extern void *ngx_http_keyless_macro_ngx_http_conf_get_module_srv_conf(const ngx_
 extern void ngx_http_keyless_macro_ngx_queue_init(ngx_queue_t *q);
 extern void ngx_http_keyless_macro_ngx_queue_remove(ngx_queue_t *q);
 extern void ngx_http_keyless_macro_ngx_del_timer(ngx_event_t *ev);
+extern void ngx_http_keyless_macro_ngx_post_event(ngx_event_t *ev, ngx_queue_t *q);
 extern void ngx_http_keyless_bitfield_ngx_url_t_no_resolve(ngx_url_t *u);
 extern void ngx_http_keyless_bitfield_ngx_connection_t_error(ngx_connection_t *c);
 

@@ -118,7 +118,7 @@ fn main() {
 		.whitelisted_type("ngx_atomic_uint_t")
 		// keyless_nginx.rs
 		.whitelisted_type("ngx_pool_cleanup_t")
-		.whitelisted_function("ngx_pcalloc")
+		.whitelisted_function("ngx_pc?alloc")
 		.opaque_type("ngx_pool_t")
 		.opaque_type("ngx_log_t")
 		.whitelisted_type("ngx_conf_t")
@@ -137,6 +137,8 @@ fn main() {
 		.whitelisted_type("ngx_event_t")
 		.whitelisted_var("NGX_AGAIN")
 		.whitelisted_function("ngx_pfree")
+		.whitelisted_var("ngx_posted_events")
+		.whitelisted_type("ngx_buf_t")
 		// rust_nginx.h
 		.whitelisted_function("^ngx_http_keyless_macro_.*")
 		.whitelisted_function("^ngx_http_keyless_bitfield_.*")
@@ -150,6 +152,7 @@ fn main() {
 		.whitelisted_function("^ngx_http_keyless_.*")
 		.whitelisted_type("^ngx_http_keyless_.*")
 		.whitelisted_var("^ngx_http_keyless_.*")
+		.whitelisted_var("^NGX_HTTP_KEYLESS_.*")
 		.hide_type("ngx_http_keyless_error_t")
 		.hide_type("ngx_http_keyless_operation_t")
 		.header("ngx_keyless_module.h")

@@ -653,10 +653,9 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 
 	while !nginx::ngx_queue_empty(&mut conf.send_ops) {
 		let op = unsafe {
-				((nginx::ngx_queue_head(&mut conf.send_ops).unwrap() as
-				  *mut nginx::ngx_queue_t as *mut u8)
-						.offset(-(offset_of!(keyless::ngx_http_keyless_op_t,
-						         send_queue) as isize)) as
+				((conf.send_ops.next as *mut u8)
+					.offset(-(offset_of!(keyless::ngx_http_keyless_op_t,
+					         send_queue) as isize)) as
 				 *mut keyless::ngx_http_keyless_op_t)
 					.as_mut()
 			}
@@ -693,6 +692,133 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 		op.send.last = ptr::null_mut();
 		op.send.end = ptr::null_mut();
 	}
+}
+
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_socket_read_handler(rev: *mut nginx::ngx_event_t) {
+	let c = unsafe { ((*rev).data as *mut nginx::ngx_connection_t).as_mut() }.unwrap();
+	let conf = unsafe { (c.data as *mut keyless::ngx_http_keyless_srv_conf_t).as_mut() }
+		.unwrap();
+	let c_recv = c.recv.unwrap();
+
+	let mut header: [u8; keyless::NGX_HTTP_KEYLESS_HEADER_LENGTH as usize] =
+		[0; keyless::NGX_HTTP_KEYLESS_HEADER_LENGTH as usize];
+
+	if !conf.tmp_recv.start.is_null() {
+		unsafe {
+			ptr::copy_nonoverlapping(conf.tmp_recv.start,
+			                         header.as_mut_ptr(),
+			                         header.len())
+		};
+	} else {
+		let h = header.as_mut_ptr();
+		let mut p = h;
+
+		loop {
+			let n = header.len() - unsafe { p.offset(-(h as isize)) as usize };
+
+			let size = unsafe { c_recv(c, p, n) };
+			if size > 0 {
+				p = unsafe { p.offset(size as isize) };
+			} else if size == 0 /*|| size == NGX_AGAIN*/ {
+				break;
+			} else {
+				unsafe { nginx::ngx_connection_set_error(c) };
+				return;
+			};
+		}
+	};
+
+	let mut payload = ssl::CBS::default();
+	unsafe { ssl::CBS_init(&mut payload, header.as_ptr(), header.len()) };
+
+	let mut vers: u8 = 0;
+	let mut length: u32 = 0;
+	let mut id: u32 = 0;
+	if unsafe {
+		ssl::CBS_get_u8(&mut payload, &mut vers) != 1 ||
+		ssl::CBS_get_u24(&mut payload, &mut length) != 1 ||
+		ssl::CBS_get_u32(&mut payload, &mut id) != 1
+	} {
+		return;
+	};
+
+	if vers != keyless::NGX_HTTP_KEYLESS_VERSION as u8 {
+		return;
+	};
+
+	let mut recv = nginx::ngx_buf_t::default();
+	if !conf.tmp_recv.start.is_null() {
+		recv = conf.tmp_recv;
+
+		conf.tmp_recv.start = ptr::null_mut();
+		conf.tmp_recv.pos = ptr::null_mut();
+		conf.tmp_recv.last = ptr::null_mut();
+		conf.tmp_recv.end = ptr::null_mut();
+	} else {
+		let size = header.len() + (length as usize);
+
+		recv.start = unsafe { nginx::ngx_palloc(c.pool, size) } as *mut u8;
+		if recv.start.is_null() {
+			return;
+		};
+
+		recv.pos = recv.start;
+		recv.last = recv.start;
+		recv.end = unsafe { recv.start.offset(size as isize) };
+
+		unsafe { ptr::copy_nonoverlapping(header.as_ptr(), recv.pos, header.len()) };
+		recv.last = unsafe { recv.last.offset(header.len() as isize) };
+	};
+
+	loop {
+		let n = unsafe { recv.end.offset(-(recv.last as isize)) } as usize;
+
+		let size = unsafe { c_recv(c, recv.last, n) };
+		if size > 0 {
+			recv.last = unsafe { recv.last.offset(size as isize) };
+		} else if size == 0 || size == nginx::NGX_AGAIN as i64 {
+			break;
+		} else {
+			unsafe { nginx::ngx_connection_set_error(c) };
+			return;
+		};
+	}
+
+	if recv.last < recv.end {
+		conf.tmp_recv = recv;
+		return;
+	};
+
+	let mut q = conf.recv_ops.next;
+	while q != &mut conf.recv_ops as *mut nginx::ngx_queue_t {
+		let op = unsafe {
+				((q as *mut u8).offset(-(offset_of!(keyless::ngx_http_keyless_op_t,
+					               recv_queue) as isize)) as
+				 *mut keyless::ngx_http_keyless_op_t)
+						.as_mut()
+			}
+			.unwrap();
+
+		if op.id == id {
+			unsafe {
+				nginx::ngx_queue_remove(&mut op.recv_queue as
+				                        *mut nginx::ngx_queue_t)
+			};
+
+			op.recv = recv;
+			unsafe { nginx::ngx_post_event(op.ev, &mut nginx::ngx_posted_events) };
+			return;
+		};
+
+		q = unsafe { (*q).next };
+	}
+
+	unsafe {
+		ssl::OPENSSL_cleanse(recv.start as *mut std::os::raw::c_void,
+		                     recv.last.offset(-(recv.start as isize)) as usize);
+		nginx::ngx_pfree(c.pool, recv.start as *mut std::os::raw::c_void);
+	};
 }
 
 fn cleanup_operation(op: &mut keyless::ngx_http_keyless_op_t) {
