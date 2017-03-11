@@ -444,7 +444,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		ssl::EVP_PKEY_free(public_key);
 	};
 
-	let mut certs = Vec::new();
+	let mut certs = Vec::with_capacity(1 + res.chain.len());
 	certs.push(unsafe {
 		ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), (*ctx).pool)
 	} as *const ssl::CRYPTO_BUFFER);
