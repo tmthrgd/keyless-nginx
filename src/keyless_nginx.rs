@@ -133,6 +133,7 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
                                  parent: *mut std::os::raw::c_void,
                                  child: *mut std::os::raw::c_void)
                                  -> *mut i8 {
+	let cf = unsafe { cf.as_mut() }.unwrap();
 	let prev = unsafe { (parent as *const keyless::ngx_http_keyless_srv_conf_t).as_ref() }
 		.unwrap();
 	let conf = unsafe { (child as *mut keyless::ngx_http_keyless_srv_conf_t).as_mut() }
@@ -171,9 +172,16 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	};
 
 	let ssl = unsafe {
-		nginx::ngx_http_conf_get_module_srv_conf(cf, &nginx::ngx_http_ssl_module)
-	} as *mut nginx::ngx_http_ssl_srv_conf_t;
-	if ssl.is_null() || unsafe { (*ssl).ssl.ctx }.is_null() {
+		(nginx::ngx_http_conf_get_module_srv_conf(cf, &nginx::ngx_http_ssl_module) as
+		 *mut nginx::ngx_http_ssl_srv_conf_t)
+				.as_mut()
+	};
+	if ssl.is_none() {
+		return nginx::NGX_CONF_ERROR;
+	};
+
+	let ssl = ssl.unwrap();
+	if ssl.ssl.ctx.is_null() {
 		return nginx::NGX_CONF_ERROR;
 	};
 
@@ -182,7 +190,7 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	u.default_port = 2407;
 	unsafe { nginx::ngx_url_set_no_resolve(&mut u) };
 
-	if unsafe { nginx::ngx_parse_url((*cf).pool, &mut u) } != nginx::NGX_OK as isize ||
+	if unsafe { nginx::ngx_parse_url(cf.pool, &mut u) } != nginx::NGX_OK as isize ||
 	   u.addrs.is_null() {
 		return nginx::NGX_CONF_ERROR;
 	};
@@ -197,14 +205,14 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	conf.pc.name = &mut conf.address;
 
 	conf.pc.get = unsafe { mem::transmute(nginx::ngx_event_get_peer as *const ()) };
-	conf.pc.log = unsafe { (*cf).log };
+	conf.pc.log = cf.log;
 	//conf.pc.log_error = nginx::NGX_ERROR_ERR;
 
 	if unsafe { ssl::RAND_bytes(mem::transmute(&mut conf.id), 8) } != 1 {
 		return nginx::NGX_CONF_ERROR;
 	};
 
-	conf.pool = unsafe { (*(*cf).cycle).pool };
+	conf.pool = unsafe { (*cf.cycle).pool };
 
 	unsafe {
 		nginx::ngx_queue_init(&mut conf.recv_ops);
@@ -212,11 +220,11 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	};
 
 	unsafe {
-		ssl::SSL_CTX_set_select_certificate_cb((*ssl).ssl.ctx, Some(select_certificate_cb));
-		ssl::SSL_CTX_set_cert_cb((*ssl).ssl.ctx, Some(cert_cb), ptr::null_mut());
+		ssl::SSL_CTX_set_select_certificate_cb(ssl.ssl.ctx, Some(select_certificate_cb));
+		ssl::SSL_CTX_set_cert_cb(ssl.ssl.ctx, Some(cert_cb), ptr::null_mut());
 	};
 
-	if unsafe { ssl::SSL_CTX_set_session_id_context((*ssl).ssl.ctx, ptr::null(), 0) } != 1 {
+	if unsafe { ssl::SSL_CTX_set_session_id_context(ssl.ssl.ctx, ptr::null(), 0) } != 1 {
 		return nginx::NGX_CONF_ERROR;
 	};
 
@@ -238,10 +246,12 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 
 pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HELLO)
                                         -> std::os::raw::c_int {
-	let c = unsafe { nginx::ngx_ssl_get_connection((*client_hello).ssl) };
+	let client_hello = unsafe { client_hello.as_ref() }.unwrap();
+
+	let c = unsafe { nginx::ngx_ssl_get_connection(client_hello.ssl).as_mut() }.unwrap();
 
 	let conn = unsafe {
-		(nginx::ngx_pcalloc((*c).pool, mem::size_of::<Conn>()) as *mut Conn).as_mut()
+		(nginx::ngx_pcalloc(c.pool, mem::size_of::<Conn>()) as *mut Conn).as_mut()
 	};
 	if conn.is_none() {
 		return -1;
@@ -250,7 +260,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 	let conn = conn.unwrap();
 
 	if unsafe {
-		   ssl::SSL_set_ex_data((*(*c).ssl).connection,
+		   ssl::SSL_set_ex_data((*c.ssl).connection,
 		                        SSL_CONN_INDEX,
 		                        conn as *mut Conn as *mut std::os::raw::c_void)
 		  } != 1 {
@@ -259,12 +269,11 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 
 	conn.key_type = ssl::NID_undef as i32;
 
-	let cipher_list = unsafe { ssl::SSL_get_ciphers((*client_hello).ssl) };
+	let cipher_list = unsafe { ssl::SSL_get_ciphers(client_hello.ssl) };
 
 	for cipher_suite in
 		match parse_cipher_suites(unsafe {
-			slice::from_raw_parts((*client_hello).cipher_suites,
-			                      (*client_hello).cipher_suites_len)
+			slice::from_raw_parts(client_hello.cipher_suites, client_hello.cipher_suites_len)
 		}) {
 			IResult::Done(i, ref v) if i.is_empty() => v,
 			_ => return -1,
@@ -302,7 +311,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 			_ => return -1,
 		};
 
-		conn.sig_algs = unsafe { nginx::ngx_pcalloc((*c).pool, sig_algs.len()) } as *mut u8;
+		conn.sig_algs = unsafe { nginx::ngx_pcalloc(c.pool, sig_algs.len()) } as *mut u8;
 		if conn.sig_algs.is_null() {
 			return -1;
 		};
@@ -321,7 +330,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
                           data: *mut std::os::raw::c_void)
                           -> std::os::raw::c_int {
-	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
+	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn).as_mut() }.unwrap();
 
 	let conn = unsafe { get_conn(c).as_mut() };
 	if conn.is_none() {
@@ -331,7 +340,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	let conn = conn.unwrap();
 	let op = unsafe { conn.op.as_mut() };
 
-	let ssl = unsafe { (*(*c).ssl).connection };
+	let ssl = unsafe { (*c.ssl).connection };
 
 	let conf = unsafe { get_conf(c).as_mut() }.unwrap();
 
@@ -361,10 +370,10 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 
 		if unsafe { nginx::ngx_connection_local_sockaddr(c, ptr::null_mut(), 0) } ==
 		   nginx::NGX_OK as isize {
-			match unsafe { (*(*c).local_sockaddr).sa_family } as i32 {
+			match unsafe { (*c.local_sockaddr).sa_family } as i32 {
 				libc::AF_INET6 => {
 					let sin6 = unsafe {
-							((*c).local_sockaddr as
+							(c.local_sockaddr as
 							 *const libc::sockaddr_in6)
 									.as_ref()
 						}
@@ -375,7 +384,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 				}
 				libc::AF_INET => {
 					let sin = unsafe {
-							((*c).local_sockaddr as
+							(c.local_sockaddr as
 							 *const libc::sockaddr_in)
 									.as_ref()
 						}
@@ -391,13 +400,13 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
-			                                          conf as *mut keyless::ngx_http_keyless_srv_conf_t,
+			                                          conf,
 			                                          ptr::null(),
 			                                          0,
 			                                          ptr::null(),
-								  sni,
-								  ip,
-								  ip_len,
+			                                          sni,
+			                                          ip,
+			                                          ip_len,
 			                                          conn.sig_algs,
 			                                          conn.sig_algs_len,
 			                                          if conn.ecdsa_cipher {
@@ -409,8 +418,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 
 		if !conn.sig_algs.is_null() {
 			unsafe {
-				nginx::ngx_pfree((*c).pool,
-				                 conn.sig_algs as *mut std::os::raw::c_void)
+				nginx::ngx_pfree(c.pool, conn.sig_algs as *mut std::os::raw::c_void)
 			};
 			conn.sig_algs = ptr::null_mut();
 		};
@@ -500,16 +508,16 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		ssl::EVP_PKEY_free(public_key);
 	};
 
-	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl) };
+	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl).as_mut() }.unwrap();
 
 	let mut certs = Vec::with_capacity(1 + res.chain.len());
 	certs.push(unsafe {
-		           ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), (*ctx).pool)
+		           ssl::CRYPTO_BUFFER_new(res.leaf.as_ptr(), res.leaf.len(), ctx.pool)
 		          } as *const ssl::CRYPTO_BUFFER);
 
 	for &cert in &res.chain {
 		certs.push(unsafe {
-			           ssl::CRYPTO_BUFFER_new(cert.as_ptr(), cert.len(), (*ctx).pool)
+			           ssl::CRYPTO_BUFFER_new(cert.as_ptr(), cert.len(), ctx.pool)
 			          } as *const ssl::CRYPTO_BUFFER);
 	}
 
