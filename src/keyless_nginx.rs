@@ -334,6 +334,22 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	let conf = unsafe { get_conf(c).as_mut() }.unwrap();
 
 	if op.is_none() {
+		if conf.pc.connection.is_null() {
+			let rc = unsafe { nginx::ngx_event_connect_peer(&mut conf.pc) };
+			if rc == nginx::NGX_ERROR as isize || rc == nginx::NGX_DECLINED as isize {
+				return 0;
+			};
+
+			let connection = unsafe { conf.pc.connection.as_mut() }.unwrap();
+
+			connection.data = conf as *mut keyless::ngx_http_keyless_srv_conf_t as
+			                  *mut std::os::raw::c_void;
+			connection.pool = conf.pool;
+
+			unsafe { (*connection.read).handler = Some(read_handler) };
+			unsafe { (*connection.write).handler = Some(write_handler) };
+		};
+
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
@@ -657,8 +673,7 @@ pub extern "C" fn ngx_http_keyless_error_string(code: u16) -> *const u8 {
 	msg.as_ptr()
 }
 
-#[no_mangle]
-pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_event_t) {
+pub extern "C" fn write_handler(wev: *mut nginx::ngx_event_t) {
 	let c = unsafe { ((*wev).data as *mut nginx::ngx_connection_t).as_mut() }.unwrap();
 	let conf = unsafe { (c.data as *mut keyless::ngx_http_keyless_srv_conf_t).as_mut() }
 		.unwrap();
@@ -704,8 +719,7 @@ pub extern "C" fn ngx_http_keyless_socket_write_handler(wev: *mut nginx::ngx_eve
 	}
 }
 
-#[no_mangle]
-pub extern "C" fn ngx_http_keyless_socket_read_handler(rev: *mut nginx::ngx_event_t) {
+pub extern "C" fn read_handler(rev: *mut nginx::ngx_event_t) {
 	let c = unsafe { ((*rev).data as *mut nginx::ngx_connection_t).as_mut() }.unwrap();
 	let conf = unsafe { (c.data as *mut keyless::ngx_http_keyless_srv_conf_t).as_mut() }
 		.unwrap();

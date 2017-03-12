@@ -49,9 +49,6 @@ enum {
 	NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER = 0xc001,
 };
 
-extern void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
-extern void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
-
 extern void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev);
 static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
@@ -113,26 +110,10 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	uint8_t *p;
 	const uint8_t *sni, *ip;
 	size_t len, len2, ip_len;
-	ngx_int_t rc;
 
 	CBB_zero(&payload);
 
 	ssl = c->ssl->connection;
-
-	if (!conf->pc.connection) {
-		rc = ngx_event_connect_peer(&conf->pc);
-		if (rc == NGX_ERROR || rc == NGX_DECLINED) {
-			ngx_log_error(NGX_LOG_EMERG, c->log, 0,
-				"ngx_event_connect_peer(...) failed");
-			goto error;
-		}
-
-		conf->pc.connection->data = conf;
-		conf->pc.connection->pool = conf->pool;
-
-		conf->pc.connection->read->handler = ngx_http_keyless_socket_read_handler;
-		conf->pc.connection->write->handler = ngx_http_keyless_socket_write_handler;
-	}
 
 	op = ngx_pcalloc(conf->pool, sizeof(ngx_http_keyless_op_t));
 	if (!op) {
