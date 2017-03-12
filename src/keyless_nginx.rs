@@ -356,6 +356,38 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			ssl::SSL_get_servername(ssl, ssl::TLSEXT_NAMETYPE_host_name as i32)
 		} as *const u8;
 
+		let mut ip: *const u8 = ptr::null_mut();
+		let mut ip_len: usize = 0;
+
+		if unsafe { nginx::ngx_connection_local_sockaddr(c, ptr::null_mut(), 0) } ==
+		   nginx::NGX_OK as isize {
+			match unsafe { (*(*c).local_sockaddr).sa_family } as i32 {
+				libc::AF_INET6 => {
+					let sin6 = unsafe {
+							((*c).local_sockaddr as
+							 *const libc::sockaddr_in6)
+									.as_ref()
+						}
+						.unwrap();
+
+					ip_len = 16;
+					ip = &sin6.sin6_addr.s6_addr[0] as *const u8;
+				}
+				libc::AF_INET => {
+					let sin = unsafe {
+							((*c).local_sockaddr as
+							 *const libc::sockaddr_in)
+									.as_ref()
+						}
+						.unwrap();
+
+					ip_len = 4;
+					ip = &sin.sin_addr.s_addr as *const u32 as *const u8;
+				}
+				_ => (),
+			}
+		}
+
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
@@ -364,6 +396,8 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			                                          0,
 			                                          ptr::null(),
 								  sni,
+								  ip,
+								  ip_len,
 			                                          conn.sig_algs,
 			                                          conn.sig_algs_len,
 			                                          if conn.ecdsa_cipher {
@@ -526,6 +560,8 @@ fn key_start_operation(op: Op,
 			                                          in_len,
 			                                          &conn.ski as *const u8,
 			                                          ptr::null(),
+			                                          ptr::null(),
+			                                          0,
 			                                          ptr::null(),
 			                                          0,
 			                                          0)

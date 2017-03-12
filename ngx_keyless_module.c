@@ -98,18 +98,13 @@ ngx_module_t ngx_http_keyless_module = {
 
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
 		ngx_connection_t *c, ngx_http_keyless_srv_conf_t *conf, const uint8_t *in, size_t in_len,
-		const uint8_t *ski, const uint8_t *sni, const uint8_t *sig_algs, size_t sig_algs_len,
-		uint8_t ecdsa_cipher)
+		const uint8_t *ski, const uint8_t *sni, const uint8_t *ip, size_t ip_len,
+		const uint8_t *sig_algs, size_t sig_algs_len, uint8_t ecdsa_cipher)
 {
-	ngx_http_keyless_op_t *op = NULL;
-	const struct sockaddr_in *sin;
-#if NGX_HAVE_INET6
-	const struct sockaddr_in6 *sin6;
-#endif
+	ngx_http_keyless_op_t *op;
 	CBB payload, child;
 	uint8_t *p;
-	const uint8_t *ip;
-	size_t len, len2, ip_len;
+	size_t len, len2;
 
 	CBB_zero(&payload);
 
@@ -140,8 +135,7 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	if (ski
-		// ski tag
+	if (ski // ski tag
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SKI)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
 			|| !CBB_add_bytes(&child, ski, SHA_DIGEST_LENGTH))) {
@@ -157,37 +151,12 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	if (ngx_connection_local_sockaddr(c, NULL, 0) == NGX_OK) {
-		switch (c->local_sockaddr->sa_family) {
-#if NGX_HAVE_INET6
-			case AF_INET6:
-				sin6 = (const struct sockaddr_in6 *)c->local_sockaddr;
-
-				ip_len = 16;
-				ip = (const uint8_t *)&sin6->sin6_addr.s6_addr[0];
-				break;
-#endif /* NGX_HAVE_INET6 */
-			case AF_INET:
-				sin = (const struct sockaddr_in *)c->local_sockaddr;
-
-				ip_len = 4;
-				ip = (const uint8_t *)&sin->sin_addr.s_addr;
-				break;
-			default:
-				ip_len = 0;
-				break;
-		}
-
-		if (ip_len
-			// server ip tag
-			&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SERVER_IP)
-				|| !CBB_add_u16_length_prefixed(&payload, &child)
-				|| !CBB_add_bytes(&child, ip, ip_len))) {
-			ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
-			goto error;
-		}
-	} else {
-		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_connection_local_sockaddr(...) failed");
+	if (ip // server ip tag
+		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SERVER_IP)
+			|| !CBB_add_u16_length_prefixed(&payload, &child)
+			|| !CBB_add_bytes(&child, ip, ip_len))) {
+		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
+		goto error;
 	}
 
 	if (sig_algs

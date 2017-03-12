@@ -143,6 +143,7 @@ fn main() {
 		.whitelisted_type("ngx_http_connection_t")
 		.opaque_type("ngx_command_t")
 		.whitelisted_function("ngx_event_connect_peer")
+		.whitelisted_function("ngx_connection_local_sockaddr")
 		// rust_nginx.h
 		.whitelisted_function("^ngx_http_keyless_macro_.*")
 		.whitelisted_function("^ngx_http_keyless_bitfield_.*")
