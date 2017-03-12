@@ -350,7 +350,14 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 				                                         })
 		};
 
-		conn.sig_algs = ptr::null_mut();
+		if !conn.sig_algs.is_null() {
+			unsafe {
+				nginx::ngx_pfree((*c).pool,
+				                 conn.sig_algs as *mut std::os::raw::c_void)
+			};
+			conn.sig_algs = ptr::null_mut();
+		};
+
 		conn.ecdsa_cipher = false;
 
 		return if conn.op.is_null() { 0 } else { -1 };
