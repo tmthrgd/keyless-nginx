@@ -57,8 +57,6 @@ static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
 extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
 
-extern int ngx_http_keyless_ctx_conf_index;
-
 static ngx_command_t ngx_http_keyless_module_commands[] = {
 	{ ngx_string("keyless_ssl"),
 	  NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
@@ -102,11 +100,10 @@ ngx_module_t ngx_http_keyless_module = {
 };
 
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
-		ngx_connection_t *c, const uint8_t *in, size_t in_len, const uint8_t *ski,
-		const uint8_t *sig_algs, size_t sig_algs_len, uint8_t ecdsa_cipher)
+		ngx_connection_t *c, ngx_http_keyless_srv_conf_t *conf, const uint8_t *in, size_t in_len,
+		const uint8_t *ski, const uint8_t *sig_algs, size_t sig_algs_len, uint8_t ecdsa_cipher)
 {
 	SSL *ssl;
-	ngx_http_keyless_srv_conf_t *conf;
 	ngx_http_keyless_op_t *op = NULL;
 	const struct sockaddr_in *sin;
 #if NGX_HAVE_INET6
@@ -121,11 +118,6 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 	CBB_zero(&payload);
 
 	ssl = c->ssl->connection;
-
-	conf = SSL_CTX_get_ex_data(SSL_get_SSL_CTX(ssl), ngx_http_keyless_ctx_conf_index);
-	if (!conf) {
-		goto error;
-	}
 
 	if (!conf->pc.connection) {
 		rc = ngx_event_connect_peer(&conf->pc);

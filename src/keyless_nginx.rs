@@ -79,10 +79,7 @@ const KEY_METHOD: ssl::SSL_PRIVATE_KEY_METHOD = ssl::SSL_PRIVATE_KEY_METHOD {
 	complete: Some(key_complete),
 };
 
-#[no_mangle]
-#[allow(non_upper_case_globals)]
-pub static mut ngx_http_keyless_ctx_conf_index: std::os::raw::c_int = -1;
-
+static mut SSL_CTX_CONF_INDEX: std::os::raw::c_int = -1;
 static mut SSL_CONN_INDEX: std::os::raw::c_int = -1;
 
 #[no_mangle]
@@ -218,14 +215,13 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 	};
 
 	unsafe {
-		if ngx_http_keyless_ctx_conf_index == -1 {
-			ngx_http_keyless_ctx_conf_index =
-				ssl::SSL_CTX_get_ex_new_index(0,
-				                              ptr::null_mut(),
-				                              ptr::null_mut(),
-				                              None,
-				                              None);
-			if ngx_http_keyless_ctx_conf_index == -1 {
+		if SSL_CTX_CONF_INDEX == -1 {
+			SSL_CTX_CONF_INDEX = ssl::SSL_CTX_get_ex_new_index(0,
+			                                                   ptr::null_mut(),
+			                                                   ptr::null_mut(),
+			                                                   None,
+			                                                   None);
+			if SSL_CTX_CONF_INDEX == -1 {
 				return nginx::NGX_CONF_ERROR;
 			};
 		};
@@ -242,9 +238,7 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 		};
 	};
 
-	if unsafe {
-		   ssl::SSL_CTX_set_ex_data((*ssl).ssl.ctx, ngx_http_keyless_ctx_conf_index, child)
-		  } != 1 {
+	if unsafe { ssl::SSL_CTX_set_ex_data((*ssl).ssl.ctx, SSL_CTX_CONF_INDEX, child) } != 1 {
 		return nginx::NGX_CONF_ERROR;
 	};
 
@@ -347,10 +341,20 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	let conn = conn.unwrap();
 	let op = unsafe { conn.op.as_mut() };
 
+	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl) };
+
+	let conf = unsafe {
+			(ssl::SSL_CTX_get_ex_data(ctx, SSL_CTX_CONF_INDEX) as
+			 *mut keyless::ngx_http_keyless_srv_conf_t)
+					.as_mut()
+		}
+		.unwrap();
+
 	if op.is_none() {
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
+			                                          conf,
 			                                          ptr::null(),
 			                                          0,
 			                                          ptr::null(),
@@ -370,15 +374,6 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	};
 
 	let op = op.unwrap();
-
-	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl) };
-
-	let conf = unsafe {
-			(ssl::SSL_CTX_get_ex_data(ctx, ngx_http_keyless_ctx_conf_index) as
-			 *mut keyless::ngx_http_keyless_srv_conf_t)
-					.as_ref()
-		}
-		.unwrap();
 
 	let mut payload = ssl::CBS::default();
 
@@ -509,9 +504,18 @@ fn key_start_operation(op: Op,
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
 
 	if let Some(conn) = unsafe { get_conn((*(*c).ssl).connection).as_mut() } {
+		let conf = unsafe {
+				(ssl::SSL_CTX_get_ex_data(ssl::SSL_get_SSL_CTX(ssl_conn),
+				                          SSL_CTX_CONF_INDEX) as
+				 *mut keyless::ngx_http_keyless_srv_conf_t)
+						.as_mut()
+			}
+			.unwrap();
+
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(op,
 			                                          c,
+			                                          conf,
 			                                          in_ptr,
 			                                          in_len,
 			                                          &conn.ski as *const u8,
