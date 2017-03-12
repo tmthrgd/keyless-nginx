@@ -52,7 +52,7 @@ enum {
 extern void ngx_http_keyless_socket_write_handler(ngx_event_t *wev);
 extern void ngx_http_keyless_socket_read_handler(ngx_event_t *rev);
 
-static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev);
+extern void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev);
 static void ngx_http_keyless_cleanup_timer_handler(void *data);
 
 extern const char *ngx_http_keyless_error_string(ngx_http_keyless_error_t code);
@@ -476,13 +476,6 @@ extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q) {
 	if (ngx_queue_prev(q) && ngx_queue_next(ngx_queue_prev(q)) == q) {
 		ngx_queue_remove(q);
 	}
-}
-
-static void ngx_http_keyless_operation_timeout_handler(ngx_event_t *ev)
-{
-	ngx_event_t *wev = ev->data;
-
-	ngx_post_event(wev, &ngx_posted_events);
 }
 
 static void ngx_http_keyless_cleanup_timer_handler(void *data)

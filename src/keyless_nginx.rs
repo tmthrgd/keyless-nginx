@@ -867,3 +867,10 @@ fn cleanup_operation(op: &mut keyless::ngx_http_keyless_op_t) {
 		                 *mut std::os::raw::c_void)
 	};
 }
+
+#[no_mangle]
+pub extern "C" fn ngx_http_keyless_operation_timeout_handler(ev: *const nginx::ngx_event_t) {
+	let wev = unsafe { (*ev).data } as *mut nginx::ngx_event_t;
+
+	unsafe { nginx::ngx_post_event(wev, &mut nginx::ngx_posted_events) };
+}
