@@ -138,27 +138,9 @@ typedef struct {
 	ngx_queue_t send_queue;
 } ngx_http_keyless_op_t;
 
-typedef struct {
-	ngx_http_keyless_op_t *op;
-
-	struct {
-		int type;
-		size_t sig_len;
-	} key;
-
-	uint8_t ski[SHA_DIGEST_LENGTH];
-
-	struct {
-		uint8_t *sig_algs;
-		size_t sig_algs_len;
-
-		uint8_t ecdsa_cipher;
-	} get_cert;
-} ngx_http_keyless_conn_t;
-
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
-		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
-		size_t in_len);
+		ngx_connection_t *c, const uint8_t *in, size_t in_len, const uint8_t *ski,
+		const uint8_t *sig_algs, size_t sig_algs_len, uint8_t ecdsa_cipher);
 extern enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_http_keyless_op_t *op, CBS *out);
 
 extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q);

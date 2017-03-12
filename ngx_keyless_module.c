@@ -102,8 +102,8 @@ ngx_module_t ngx_http_keyless_module = {
 };
 
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
-		ngx_connection_t *c, ngx_http_keyless_conn_t *conn, const uint8_t *in,
-		size_t in_len)
+		ngx_connection_t *c, const uint8_t *in, size_t in_len, const uint8_t *ski,
+		const uint8_t *sig_algs, size_t sig_algs_len, uint8_t ecdsa_cipher)
 {
 	SSL *ssl;
 	ngx_http_keyless_srv_conf_t *conf;
@@ -169,11 +169,11 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	if (conn->key.type
+	if (ski
 		// ski tag
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SKI)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
-			|| !CBB_add_bytes(&child, conn->ski, SHA_DIGEST_LENGTH))) {
+			|| !CBB_add_bytes(&child, ski, SHA_DIGEST_LENGTH))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
@@ -220,21 +220,20 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_connection_local_sockaddr(...) failed");
 	}
 
-	if (conn->get_cert.sig_algs
+	if (sig_algs
 		// sig algs tag
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SIG_ALGS)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
-			|| !CBB_add_bytes(&child, conn->get_cert.sig_algs,
-				conn->get_cert.sig_algs_len))) {
+			|| !CBB_add_bytes(&child, sig_algs, sig_algs_len))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}
 
-	if (conn->get_cert.ecdsa_cipher
+	if (ecdsa_cipher
 		// ecdsa cipher tag
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_ECDSA_CIPHER)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
-			|| !CBB_add_u8(&child, conn->get_cert.ecdsa_cipher))) {
+			|| !CBB_add_u8(&child, ecdsa_cipher))) {
 		ngx_log_error(NGX_LOG_ERR, c->log, 0, "CBB_*(...) failed");
 		goto error;
 	}

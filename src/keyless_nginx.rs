@@ -57,6 +57,19 @@ use error::Error;
 mod opcode;
 use opcode::Op;
 
+struct Conn {
+	pub op: *mut keyless::ngx_http_keyless_op_t,
+
+	pub key_type: std::os::raw::c_int,
+	pub sig_len: usize,
+
+	pub ski: [u8; ssl::SHA_DIGEST_LENGTH as usize],
+
+	pub sig_algs: *mut u8,
+	pub sig_algs_len: usize,
+	pub ecdsa_cipher: bool,
+}
+
 const KEY_METHOD: ssl::SSL_PRIVATE_KEY_METHOD = ssl::SSL_PRIVATE_KEY_METHOD {
 	type_: Some(key_type),
 	max_signature_len: Some(key_max_signature_len),
@@ -89,8 +102,8 @@ pub static ngx_http_keyless_module_ctx: nginx::ngx_http_module_t = nginx::ngx_ht
 	merge_loc_conf: None,
 };
 
-unsafe fn get_conn(ssl: *const ssl::SSL) -> *mut keyless::ngx_http_keyless_conn_t {
-	ssl::SSL_get_ex_data(ssl, SSL_CONN_INDEX) as *mut keyless::ngx_http_keyless_conn_t
+unsafe fn get_conn(ssl: *const ssl::SSL) -> *mut Conn {
+	ssl::SSL_get_ex_data(ssl, SSL_CONN_INDEX) as *mut Conn
 }
 
 pub extern "C" fn create_srv_conf(cf: *mut nginx::ngx_conf_t) -> *mut std::os::raw::c_void {
@@ -243,10 +256,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 	let c = unsafe { nginx::ngx_ssl_get_connection((*client_hello).ssl) };
 
 	let conn = unsafe {
-		(nginx::ngx_pcalloc((*c).pool,
-		                    mem::size_of::<keyless::ngx_http_keyless_conn_t>()) as
-		 *mut keyless::ngx_http_keyless_conn_t)
-				.as_mut()
+		(nginx::ngx_pcalloc((*c).pool, mem::size_of::<Conn>()) as *mut Conn).as_mut()
 	};
 	if conn.is_none() {
 		return -1;
@@ -257,13 +267,12 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 	if unsafe {
 		   ssl::SSL_set_ex_data((*(*c).ssl).connection,
 		                        SSL_CONN_INDEX,
-		                        conn as *mut keyless::ngx_http_keyless_conn_t as
-		                        *mut std::os::raw::c_void)
+		                        conn as *mut Conn as *mut std::os::raw::c_void)
 		  } != 1 {
 		return -1;
 	};
 
-	conn.key.type_ = ssl::NID_undef as i32;
+	conn.key_type = ssl::NID_undef as i32;
 
 	let cipher_list = unsafe { ssl::SSL_get_ciphers((*client_hello).ssl) };
 
@@ -283,7 +292,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 			             ptr::null_mut(),
 			             cipher as *mut std::os::raw::c_void) == 1
 		} {
-			conn.get_cert.ecdsa_cipher = 1;
+			conn.ecdsa_cipher = true;
 			break;
 		};
 	}
@@ -308,19 +317,16 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 			_ => return -1,
 		};
 
-		conn.get_cert.sig_algs =
-			unsafe { nginx::ngx_pcalloc((*c).pool, sig_algs.len()) } as *mut u8;
-		if conn.get_cert.sig_algs.is_null() {
+		conn.sig_algs = unsafe { nginx::ngx_pcalloc((*c).pool, sig_algs.len()) } as *mut u8;
+		if conn.sig_algs.is_null() {
 			return -1;
 		};
 
 		unsafe {
-			ptr::copy_nonoverlapping(sig_algs.as_ptr(),
-			                         conn.get_cert.sig_algs,
-			                         sig_algs.len())
+			ptr::copy_nonoverlapping(sig_algs.as_ptr(), conn.sig_algs, sig_algs.len())
 		};
 
-		conn.get_cert.sig_algs_len = sig_algs.len();
+		conn.sig_algs_len = sig_algs.len();
 	};
 
 	1
@@ -345,13 +351,20 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
-			                                          conn,
 			                                          ptr::null(),
-			                                          0)
+			                                          0,
+								  ptr::null(),
+			                                          conn.sig_algs,
+			                                          conn.sig_algs_len,
+			                                          if conn.ecdsa_cipher {
+				                                          1
+				                                         } else {
+				                                          0
+				                                         })
 		};
 
-		conn.get_cert.sig_algs = ptr::null_mut();
-		conn.get_cert.ecdsa_cipher = 0;
+		conn.sig_algs = ptr::null_mut();
+		conn.ecdsa_cipher = false;
 
 		return if conn.op.is_null() { 0 } else { -1 };
 	};
@@ -433,14 +446,14 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		return 0;
 	};
 
-	conn.key.type_ = match unsafe { ssl::EVP_PKEY_id(public_key) } as u32 {
+	conn.key_type = match unsafe { ssl::EVP_PKEY_id(public_key) } as u32 {
 		ssl::EVP_PKEY_RSA => ssl::NID_rsaEncryption as i32,
 		ssl::EVP_PKEY_EC => unsafe { ssl::EC_GROUP_get_curve_name(ssl::EC_KEY_get0_group(
 			ssl::EVP_PKEY_get0_EC_KEY(public_key))) },
 		_ => ssl::NID_undef as i32,
 	};
 
-	conn.key.sig_len = unsafe { ssl::EVP_PKEY_size(public_key) } as usize;
+	conn.sig_len = unsafe { ssl::EVP_PKEY_size(public_key) } as usize;
 
 	unsafe {
 		ssl::EVP_PKEY_free(public_key);
@@ -472,7 +485,7 @@ pub extern "C" fn key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
 
 	if let Some(conn) = unsafe { get_conn((*(*c).ssl).connection).as_ref() } {
-		conn.key.type_
+		conn.key_type
 	} else {
 		ssl::NID_undef as i32
 	}
@@ -482,7 +495,7 @@ pub extern "C" fn key_max_signature_len(ssl_conn: *mut ssl::SSL) -> u64 {
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
 
 	if let Some(conn) = unsafe { get_conn((*(*c).ssl).connection).as_ref() } {
-		conn.key.sig_len as u64
+		conn.sig_len as u64
 	} else {
 		0
 	}
@@ -497,7 +510,14 @@ fn key_start_operation(op: Op,
 
 	if let Some(conn) = unsafe { get_conn((*(*c).ssl).connection).as_mut() } {
 		conn.op = unsafe {
-			keyless::ngx_http_keyless_start_operation(op, c, conn, in_ptr, in_len)
+			keyless::ngx_http_keyless_start_operation(op,
+			                                          c,
+			                                          in_ptr,
+			                                          in_len,
+			                                          &conn.ski as *const u8,
+			                                          ptr::null(),
+			                                          0,
+			                                          0)
 		};
 		if conn.op.is_null() {
 			ssl::ssl_private_key_failure
