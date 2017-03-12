@@ -97,6 +97,8 @@ fn main() {
 		.whitelisted_function("^SSL(_CTX)?_get_ex_new_index$")
 		.whitelisted_function("SSL_CTX_set_ex_data")
 		.whitelisted_function("OPENSSL_cleanse")
+		.whitelisted_function("SSL_get_servername")
+		.whitelisted_var("TLSEXT_NAMETYPE_host_name")
 		// rust_openssl.h
 		.header("rust_openssl.h")
 		.generate()

@@ -331,6 +331,8 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	let conn = conn.unwrap();
 	let op = unsafe { conn.op.as_mut() };
 
+	let ssl = unsafe { (*(*c).ssl).connection };
+
 	let conf = unsafe { get_conf(c).as_mut() }.unwrap();
 
 	if op.is_none() {
@@ -350,6 +352,10 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			unsafe { (*connection.write).handler = Some(write_handler) };
 		};
 
+		let sni = unsafe {
+			ssl::SSL_get_servername(ssl, ssl::TLSEXT_NAMETYPE_host_name as i32)
+		} as *const u8;
+
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
@@ -357,6 +363,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			                                          ptr::null(),
 			                                          0,
 			                                          ptr::null(),
+								  sni,
 			                                          conn.sig_algs,
 			                                          conn.sig_algs_len,
 			                                          if conn.ecdsa_cipher {
@@ -380,8 +387,6 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	};
 
 	let op = op.unwrap();
-
-	let ssl = unsafe { (*(*c).ssl).connection };
 
 	let mut payload = ssl::CBS::default();
 
@@ -520,6 +525,7 @@ fn key_start_operation(op: Op,
 			                                          in_ptr,
 			                                          in_len,
 			                                          &conn.ski as *const u8,
+			                                          ptr::null(),
 			                                          ptr::null(),
 			                                          0,
 			                                          0)

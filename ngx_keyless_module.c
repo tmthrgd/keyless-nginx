@@ -98,9 +98,9 @@ ngx_module_t ngx_http_keyless_module = {
 
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
 		ngx_connection_t *c, ngx_http_keyless_srv_conf_t *conf, const uint8_t *in, size_t in_len,
-		const uint8_t *ski, const uint8_t *sig_algs, size_t sig_algs_len, uint8_t ecdsa_cipher)
+		const uint8_t *ski, const uint8_t *sni, const uint8_t *sig_algs, size_t sig_algs_len,
+		uint8_t ecdsa_cipher)
 {
-	SSL *ssl;
 	ngx_http_keyless_op_t *op = NULL;
 	const struct sockaddr_in *sin;
 #if NGX_HAVE_INET6
@@ -108,12 +108,10 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 #endif
 	CBB payload, child;
 	uint8_t *p;
-	const uint8_t *sni, *ip;
+	const uint8_t *ip;
 	size_t len, len2, ip_len;
 
 	CBB_zero(&payload);
-
-	ssl = c->ssl->connection;
 
 	op = ngx_pcalloc(conf->pool, sizeof(ngx_http_keyless_op_t));
 	if (!op) {
@@ -151,7 +149,6 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	sni = (const uint8_t *)SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 	if (sni // sni tag
 		&& (!CBB_add_u16(&payload, NGX_HTTP_KEYLESS_TAG_SNI)
 			|| !CBB_add_u16_length_prefixed(&payload, &child)
