@@ -98,8 +98,8 @@ pub static ngx_http_keyless_module_ctx: nginx::ngx_http_module_t = nginx::ngx_ht
 	merge_loc_conf: None,
 };
 
-unsafe fn get_conn(ssl: *const ssl::SSL) -> *mut Conn {
-	ssl::SSL_get_ex_data(ssl, SSL_CONN_INDEX) as *mut Conn
+unsafe fn get_conn(c: *const nginx::ngx_connection_t) -> *mut Conn {
+	ssl::SSL_get_ex_data((*(*c).ssl).connection, SSL_CONN_INDEX) as *mut Conn
 }
 
 unsafe fn get_conf(c: *const nginx::ngx_connection_t) -> *mut keyless::ngx_http_keyless_srv_conf_t {
@@ -322,9 +322,8 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
                           data: *mut std::os::raw::c_void)
                           -> std::os::raw::c_int {
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
-	let ssl = unsafe { (*(*c).ssl).connection };
 
-	let conn = unsafe { get_conn(ssl).as_mut() };
+	let conn = unsafe { get_conn(c).as_mut() };
 	if conn.is_none() {
 		return 1;
 	};
@@ -358,6 +357,8 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 	};
 
 	let op = op.unwrap();
+
+	let ssl = unsafe { (*(*c).ssl).connection };
 
 	let mut payload = ssl::CBS::default();
 
@@ -465,7 +466,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 pub extern "C" fn key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
 
-	if let Some(conn) = unsafe { get_conn((*(*c).ssl).connection).as_ref() } {
+	if let Some(conn) = unsafe { get_conn(c).as_ref() } {
 		conn.key_type
 	} else {
 		ssl::NID_undef as i32
@@ -475,7 +476,7 @@ pub extern "C" fn key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
 pub extern "C" fn key_max_signature_len(ssl_conn: *mut ssl::SSL) -> u64 {
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
 
-	if let Some(conn) = unsafe { get_conn((*(*c).ssl).connection).as_ref() } {
+	if let Some(conn) = unsafe { get_conn(c).as_ref() } {
 		conn.sig_len as u64
 	} else {
 		0
@@ -489,7 +490,7 @@ fn key_start_operation(op: Op,
                        -> ssl::ssl_private_key_result_t {
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
 
-	if let Some(conn) = unsafe { get_conn((*(*c).ssl).connection).as_mut() } {
+	if let Some(conn) = unsafe { get_conn(c).as_mut() } {
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(op,
 			                                          c,
@@ -599,7 +600,7 @@ pub extern "C" fn key_complete(ssl_conn: *mut ssl::SSL,
                                -> ssl::ssl_private_key_result_t {
 	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
 
-	let conn = unsafe { get_conn((*(*c).ssl).connection).as_mut() };
+	let conn = unsafe { get_conn(c).as_mut() };
 	if conn.is_none() {
 		return ssl::ssl_private_key_failure;
 	};
