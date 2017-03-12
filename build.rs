@@ -129,7 +129,6 @@ fn main() {
 		.whitelisted_type("ngx_connection_log_error_e")
 		.whitelisted_function("ngx_parse_url")
 		.whitelisted_function("ngx_event_get_peer")
-		.opaque_type("ngx_module_t")
 		.opaque_type("ngx_rbtree_t")
 		.opaque_type("ngx_rbtree_node_t")
 		.whitelisted_type("ngx_http_module_t")
@@ -138,6 +137,9 @@ fn main() {
 		.whitelisted_function("ngx_pfree")
 		.whitelisted_var("ngx_posted_events")
 		.whitelisted_type("ngx_buf_t")
+		.opaque_type("ngx_http_addr_conf_t")
+		.whitelisted_type("ngx_http_connection_t")
+		.opaque_type("ngx_command_t")
 		// rust_nginx.h
 		.whitelisted_function("^ngx_http_keyless_macro_.*")
 		.whitelisted_function("^ngx_http_keyless_bitfield_.*")
