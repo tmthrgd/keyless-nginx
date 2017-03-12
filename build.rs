@@ -15,8 +15,7 @@ fn new_builder(openssl_path: &String, nginx_path: &String) -> bindgen::Builder {
 
 	if !nginx_path.is_empty() {
 		let nginx_path = PathBuf::from(nginx_path);
-		b = b.clang_arg("-I".to_string() +
-			           nginx_path.join("src/core").to_str().unwrap())
+		b = b.clang_arg("-I".to_string() + nginx_path.join("src/core").to_str().unwrap())
 			.clang_arg("-I".to_string() +
 			           nginx_path.join("src/event").to_str().unwrap())
 			.clang_arg("-I".to_string() +

@@ -17,7 +17,7 @@ pub fn ssl_cert_parse_pubkey(in_cert: &[u8]) -> *mut EVP_PKEY {
 	unsafe { CBS_init(&mut buf, in_cert.as_ptr(), in_cert.len()) };
 
 	if unsafe {
-		CBS_get_asn1(&mut buf, &mut toplevel, CBS_ASN1_SEQUENCE) == 1 &&
+		   CBS_get_asn1(&mut buf, &mut toplevel, CBS_ASN1_SEQUENCE) == 1 &&
 		CBS_len(&buf) == 0 &&
 		CBS_get_asn1(&mut toplevel, &mut tbs_cert, CBS_ASN1_SEQUENCE) == 1 &&
 		/* version */
@@ -33,7 +33,7 @@ pub fn ssl_cert_parse_pubkey(in_cert: &[u8]) -> *mut EVP_PKEY {
 		CBS_get_asn1(&mut tbs_cert, ::ptr::null_mut(), CBS_ASN1_SEQUENCE) == 1 &&
 		/* subject */
 		CBS_get_asn1(&mut tbs_cert, ::ptr::null_mut(), CBS_ASN1_SEQUENCE) == 1
-	} {
+		  } {
 		unsafe { EVP_parse_public_key(&mut tbs_cert) }
 	} else {
 		::ptr::null_mut()

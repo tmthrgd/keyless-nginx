@@ -11,7 +11,7 @@ pub use self::ngx_connection_log_error_e::*;
 
 pub use self::ngx_http_keyless_macro_ngx_ssl_get_connection as ngx_ssl_get_connection;
 pub use self::ngx_http_keyless_macro_ngx_http_conf_get_module_srv_conf
-	as ngx_http_conf_get_module_srv_conf;
+as ngx_http_conf_get_module_srv_conf;
 pub use self::ngx_http_keyless_macro_ngx_queue_init as ngx_queue_init;
 pub use self::ngx_http_keyless_macro_ngx_queue_remove as ngx_queue_remove;
 pub use self::ngx_http_keyless_macro_ngx_del_timer as ngx_del_timer;
