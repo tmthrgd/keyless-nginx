@@ -114,8 +114,6 @@ typedef struct {
 } ngx_http_keyless_srv_conf_t;
 
 typedef struct {
-	ngx_http_keyless_srv_conf_t *conf;
-
 	ngx_event_t *ev;
 	ngx_event_t timer;
 	ngx_pool_cleanup_t *cln;
@@ -130,6 +128,7 @@ typedef struct {
 	size_t sct_list_length;
 
 	ngx_log_t *log;
+	ngx_pool_t *pool;
 
 	ngx_buf_t send;
 	ngx_buf_t recv;

@@ -148,9 +148,9 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		goto error;
 	}
 
-	op->conf = conf;
 	op->ev = c->write;
 	op->log = c->log;
+	op->pool = conf->pool;
 
 	do {
 		op->id = ngx_atomic_fetch_add(&conf->id, 1);

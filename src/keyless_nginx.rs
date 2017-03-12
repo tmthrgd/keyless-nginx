@@ -353,7 +353,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			                                          c,
 			                                          ptr::null(),
 			                                          0,
-								  ptr::null(),
+			                                          ptr::null(),
 			                                          conn.sig_algs,
 			                                          conn.sig_algs_len,
 			                                          if conn.ecdsa_cipher {
@@ -866,8 +866,7 @@ fn cleanup_operation(op: &mut keyless::ngx_http_keyless_op_t) {
 			ssl::OPENSSL_cleanse(op.recv.start as *mut std::os::raw::c_void,
 			                     op.recv.end.offset(-(op.recv.start as isize)) as
 			                     usize);
-			nginx::ngx_pfree((*op.conf).pool,
-			                 op.recv.start as *mut std::os::raw::c_void);
+			nginx::ngx_pfree(op.pool, op.recv.start as *mut std::os::raw::c_void);
 		};
 
 		op.recv.start = ptr::null_mut();
@@ -882,7 +881,7 @@ fn cleanup_operation(op: &mut keyless::ngx_http_keyless_op_t) {
 	};
 
 	unsafe {
-		nginx::ngx_pfree((*op.conf).pool,
+		nginx::ngx_pfree(op.pool,
 		                 op as *mut keyless::ngx_http_keyless_op_t as
 		                 *mut std::os::raw::c_void)
 	};
