@@ -144,6 +144,4 @@ extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_
 		const uint8_t *ski, const uint8_t *sig_algs, size_t sig_algs_len, uint8_t ecdsa_cipher);
 extern enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_http_keyless_op_t *op, CBS *out);
 
-extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q);
-
 // -*- mode: c;-*-

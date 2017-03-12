@@ -864,9 +864,14 @@ fn cleanup_operation(op: &mut keyless::ngx_http_keyless_op_t) {
 		op.recv.end = ptr::null_mut();
 	};
 
-	unsafe {
-		keyless::ngx_http_keyless_helper_remove_if_in_queue(&mut op.recv_queue);
-		keyless::ngx_http_keyless_helper_remove_if_in_queue(&mut op.send_queue);
+	if !op.recv_queue.prev.is_null() &&
+	   unsafe { (*op.recv_queue.prev).next } == &mut op.recv_queue as *mut nginx::ngx_queue_t {
+		unsafe { nginx::ngx_queue_remove(&mut op.recv_queue) };
+	};
+
+	if !op.send_queue.prev.is_null() &&
+	   unsafe { (*op.send_queue.prev).next } == &mut op.send_queue as *mut nginx::ngx_queue_t {
+		unsafe { nginx::ngx_queue_remove(&mut op.send_queue) };
 	};
 
 	unsafe {

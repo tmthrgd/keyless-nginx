@@ -463,12 +463,6 @@ extern enum ssl_private_key_result_t ngx_http_keyless_operation_complete(ngx_htt
 	}
 }
 
-extern void ngx_http_keyless_helper_remove_if_in_queue(ngx_queue_t *q) {
-	if (ngx_queue_prev(q) && ngx_queue_next(ngx_queue_prev(q)) == q) {
-		ngx_queue_remove(q);
-	}
-}
-
 static void ngx_http_keyless_cleanup_timer_handler(void *data)
 {
 	ngx_event_t *ev = data;
