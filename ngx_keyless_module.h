@@ -137,8 +137,6 @@ typedef struct {
 	ngx_queue_t send_queue;
 } ngx_http_keyless_op_t;
 
-ngx_module_t ngx_http_keyless_module;
-
 extern ngx_http_keyless_op_t *ngx_http_keyless_start_operation(ngx_http_keyless_operation_t opcode,
 		ngx_connection_t *c, ngx_http_keyless_srv_conf_t *conf, const uint8_t *in, size_t in_len,
 		const uint8_t *ski, const uint8_t *sni, const uint8_t *ip, size_t ip_len,

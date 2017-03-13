@@ -98,6 +98,11 @@ pub static ngx_http_keyless_module_ctx: nginx::ngx_http_module_t = nginx::ngx_ht
 	merge_loc_conf: None,
 };
 
+extern "C" {
+	#[link_name = "ngx_http_keyless_module"]
+	pub static mut ngx_http_keyless_module: nginx::ngx_module_t;
+}
+
 unsafe fn get_conn(c: *const nginx::ngx_connection_t) -> *mut Conn {
 	ssl::SSL_get_ex_data((*(*c).ssl).connection, SSL_CONN_INDEX) as *mut Conn
 }
@@ -105,7 +110,7 @@ unsafe fn get_conn(c: *const nginx::ngx_connection_t) -> *mut Conn {
 unsafe fn get_conf(c: *const nginx::ngx_connection_t) -> *mut keyless::ngx_http_keyless_srv_conf_t {
 	let hc = (*c).data as *const nginx::ngx_http_connection_t;
 	let srv_conf = (*(*hc).conf_ctx).srv_conf;
-	(*srv_conf.offset(keyless::ngx_http_keyless_module.ctx_index as isize)) as
+	(*srv_conf.offset(ngx_http_keyless_module.ctx_index as isize)) as
 	*mut keyless::ngx_http_keyless_srv_conf_t
 }
 
