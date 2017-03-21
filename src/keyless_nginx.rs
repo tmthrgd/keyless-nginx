@@ -362,8 +362,10 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			                  *mut std::os::raw::c_void;
 			connection.pool = conf.pool;
 
-			unsafe { (*connection.read).handler = Some(read_handler) };
-			unsafe { (*connection.write).handler = Some(write_handler) };
+			unsafe {
+				(*connection.read).handler = Some(read_handler);
+				(*connection.write).handler = Some(write_handler);
+			};
 		};
 
 		let sni = unsafe {
