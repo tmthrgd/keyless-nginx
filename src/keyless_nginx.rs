@@ -430,8 +430,6 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			conn.sig_algs = ptr::null_mut();
 		};
 
-		conn.ecdsa_cipher = false;
-
 		return if conn.op.is_null() { 0 } else { -1 };
 	};
 
