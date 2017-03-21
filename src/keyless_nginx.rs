@@ -401,8 +401,8 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 					ip = &sin.sin_addr.s_addr as *const u32 as *const u8;
 				}
 				_ => (),
-			}
-		}
+			};
+		};
 
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
