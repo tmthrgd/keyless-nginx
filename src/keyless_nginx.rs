@@ -439,14 +439,15 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 
 	match unsafe { keyless::ngx_http_keyless_operation_complete(op, &mut payload) } {
 		ssl::ssl_private_key_failure => {
-			let rc = if op.error == Error::CertNotFound {
-				if conf.fallback != 1 {
-					unsafe { ssl::SSL_certs_clear(ssl) };
+			let mut rc = 0;
+			if op.error == Error::CertNotFound {
+				if conf.fallback == 1 {
+					rc = 1;
+				} else {
+					unsafe {
+						ssl::SSL_send_fatal_alert(ssl, ssl::SSL_AD_UNRECOGNIZED_NAME as u8)
+					};
 				};
-
-				1
-			} else {
-				0
 			};
 			cleanup_operation(op);
 			return rc;
