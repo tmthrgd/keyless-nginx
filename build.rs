@@ -100,6 +100,8 @@ fn main() {
 		.whitelisted_function("OPENSSL_cleanse")
 		.whitelisted_function("SSL_get_servername")
 		.whitelisted_var("TLSEXT_NAMETYPE_host_name")
+		.whitelisted_function("SSL_version")
+		.whitelisted_var("TLS1_3_VERSION")
 		// rust_openssl.h
 		.header("rust_openssl.h")
 		.generate()

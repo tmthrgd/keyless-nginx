@@ -404,6 +404,8 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 			};
 		};
 
+		conn.ecdsa_cipher |= unsafe { ssl::SSL_version(ssl) } >= ssl::TLS1_3_VERSION as i32;
+
 		conn.op = unsafe {
 			keyless::ngx_http_keyless_start_operation(Op::GetCertificate,
 			                                          c,
