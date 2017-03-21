@@ -510,9 +510,7 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 
 	conn.sig_len = unsafe { ssl::EVP_PKEY_size(public_key) } as usize;
 
-	unsafe {
-		ssl::EVP_PKEY_free(public_key);
-	};
+	unsafe { ssl::EVP_PKEY_free(public_key) };
 
 	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl).as_mut() }.unwrap();
 
