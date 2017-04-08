@@ -60,9 +60,6 @@ use opcode::Op;
 struct Conn {
 	pub op: *mut keyless::ngx_http_keyless_op_t,
 
-	pub key_type: std::os::raw::c_int,
-	pub sig_len: usize,
-
 	pub ski: [u8; ssl::SHA_DIGEST_LENGTH as usize],
 
 	pub sig_algs: *mut u8,
@@ -71,8 +68,8 @@ struct Conn {
 }
 
 const KEY_METHOD: ssl::SSL_PRIVATE_KEY_METHOD = ssl::SSL_PRIVATE_KEY_METHOD {
-	type_: Some(key_type),
-	max_signature_len: Some(key_max_signature_len),
+	type_: None,
+	max_signature_len: None,
 	sign: Some(key_sign),
 	sign_digest: None,
 	decrypt: Some(key_decrypt),
@@ -271,8 +268,6 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		  } != 1 {
 		return ssl::ssl_select_cert_error;
 	};
-
-	conn.key_type = ssl::NID_undef as i32;
 
 	let cipher_list = unsafe { ssl::SSL_get_ciphers(client_hello.ssl) };
 
@@ -497,23 +492,6 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		}
 	};
 
-	let public_key = ssl::ssl_cert_parse_pubkey(res.leaf);
-	if public_key.is_null() {
-		cleanup_operation(op);
-		return 0;
-	};
-
-	conn.key_type = match unsafe { ssl::EVP_PKEY_id(public_key) } as u32 {
-		ssl::EVP_PKEY_RSA => ssl::NID_rsaEncryption as i32,
-		ssl::EVP_PKEY_EC => unsafe { ssl::EC_GROUP_get_curve_name(ssl::EC_KEY_get0_group(
-			ssl::EVP_PKEY_get0_EC_KEY(public_key))) },
-		_ => ssl::NID_undef as i32,
-	};
-
-	conn.sig_len = unsafe { ssl::EVP_PKEY_size(public_key) } as usize;
-
-	unsafe { ssl::EVP_PKEY_free(public_key) };
-
 	let ctx = unsafe { ssl::SSL_get_SSL_CTX(ssl).as_mut() }.unwrap();
 
 	let mut certs = Vec::with_capacity(1 + res.chain.len());
@@ -535,26 +513,6 @@ pub extern "C" fn cert_cb(ssl_conn: *mut ssl::SSL,
 		                           certs.len(),
 		                           ptr::null_mut(),
 		                           &KEY_METHOD)
-	}
-}
-
-pub extern "C" fn key_type(ssl_conn: *mut ssl::SSL) -> std::os::raw::c_int {
-	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
-
-	if let Some(conn) = unsafe { get_conn(c).as_ref() } {
-		conn.key_type
-	} else {
-		ssl::NID_undef as i32
-	}
-}
-
-pub extern "C" fn key_max_signature_len(ssl_conn: *mut ssl::SSL) -> u64 {
-	let c = unsafe { nginx::ngx_ssl_get_connection(ssl_conn) };
-
-	if let Some(conn) = unsafe { get_conn(c).as_ref() } {
-		conn.sig_len as u64
-	} else {
-		0
 	}
 }
 
