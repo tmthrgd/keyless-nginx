@@ -250,7 +250,7 @@ pub extern "C" fn merge_srv_conf(cf: *mut nginx::ngx_conf_t,
 }
 
 pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HELLO)
-                                        -> std::os::raw::c_int {
+                                        -> ssl::ssl_select_cert_result_t {
 	let client_hello = unsafe { client_hello.as_ref() }.unwrap();
 
 	let c = unsafe { nginx::ngx_ssl_get_connection(client_hello.ssl).as_mut() }.unwrap();
@@ -259,7 +259,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		(nginx::ngx_pcalloc(c.pool, mem::size_of::<Conn>()) as *mut Conn).as_mut()
 	};
 	if conn.is_none() {
-		return -1;
+		return ssl::ssl_select_cert_error;
 	};
 
 	let conn = conn.unwrap();
@@ -269,7 +269,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		                        SSL_CONN_INDEX,
 		                        conn as *mut Conn as *mut std::os::raw::c_void)
 		  } != 1 {
-		return -1;
+		return ssl::ssl_select_cert_error;
 	};
 
 	conn.key_type = ssl::NID_undef as i32;
@@ -281,7 +281,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 			slice::from_raw_parts(client_hello.cipher_suites, client_hello.cipher_suites_len)
 		}) {
 			IResult::Done(i, ref v) if i.is_empty() => v,
-			_ => return -1,
+			_ => return ssl::ssl_select_cert_error,
 		} {
 		let cipher = unsafe { ssl::SSL_get_cipher_by_value(*cipher_suite) };
 		if !cipher.is_null() &&
@@ -313,12 +313,12 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		let sig_algs = match sig_algs_res {
 			IResult::Done(i, ref v) if i.is_empty() && !v.is_empty() &&
 			                           v.len() % 2 == 0 => v,
-			_ => return -1,
+			_ => return ssl::ssl_select_cert_error,
 		};
 
 		conn.sig_algs = unsafe { nginx::ngx_pcalloc(c.pool, sig_algs.len()) } as *mut u8;
 		if conn.sig_algs.is_null() {
-			return -1;
+			return ssl::ssl_select_cert_error;
 		};
 
 		unsafe {
@@ -328,7 +328,7 @@ pub extern "C" fn select_certificate_cb(client_hello: *const ssl::SSL_CLIENT_HEL
 		conn.sig_algs_len = sig_algs.len();
 	};
 
-	1
+	ssl::ssl_select_cert_success
 }
 
 #[allow(unused_variables)]

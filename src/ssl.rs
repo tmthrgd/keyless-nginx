@@ -6,6 +6,7 @@ pub use libc::free as OPENSSL_free;
 
 pub use self::stack_st as stack_st_SSL_CIPHER;
 
+pub use self::ssl_select_cert_result_t::*;
 pub use self::ssl_private_key_result_t::*;
 
 // this is ssl_cert_parse_pubkey & ssl_cert_skip_to_spki from boringssl-f71036e/ssl/ssl_cert.c
